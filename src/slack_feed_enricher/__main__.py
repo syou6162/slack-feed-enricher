@@ -11,9 +11,6 @@ from slack_feed_enricher.slack import SlackClient, extract_urls
 
 logging.basicConfig(level=logging.INFO)
 
-# 動作確認用にメッセージ数を制限
-TEST_MESSAGE_LIMIT = 3
-
 
 async def main() -> None:
     """アプリケーションのエントリーポイント"""
@@ -29,7 +26,7 @@ async def main() -> None:
     print(f"\nFetching unreplied messages from channel {config.rss_feed_channel_id}...")
     messages = await slack_client.fetch_unreplied_messages(
         config.rss_feed_channel_id,
-        limit=TEST_MESSAGE_LIMIT,  # 動作確認用に制限
+        limit=config.message_limit,
     )
 
     print(f"Found {len(messages)} unreplied messages:")
