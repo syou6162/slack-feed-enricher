@@ -1,10 +1,15 @@
 import asyncio
+import logging
 from pathlib import Path
 
+from claude_agent_sdk import query
 from slack_sdk.web.async_client import AsyncWebClient
 
+from slack_feed_enricher.claude import fetch_and_summarize
 from slack_feed_enricher.config import load_config
 from slack_feed_enricher.slack import SlackClient, extract_urls
+
+logging.basicConfig(level=logging.INFO)
 
 
 async def main() -> None:
@@ -33,6 +38,13 @@ async def main() -> None:
         urls = extract_urls(msg)
         if urls:
             print(f"    URLs: {urls}")
+
+            # Claude Agent SDKで要約取得
+            try:
+                result = await fetch_and_summarize(query, urls)
+                print(f"    Summary (JSON): {result}")
+            except Exception as e:
+                print(f"    Summary error: {e}")
         else:
             print("    URLs: (none)")
 
