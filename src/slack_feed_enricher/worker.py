@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -58,7 +59,7 @@ async def enrich_and_reply_pending_messages(
     query_func: QueryFunc,
     channel_id: str,
     message_limit: int,
-    timeout: int | None = None,  # タイムアウト秒数（Noneなら無制限）  # noqa: ARG001
+    timeout: int | None = None,  # タイムアウト秒数（Noneなら無制限）
 ) -> EnrichAndReplyResult:
     """
     未返信メッセージをエンリッチして返信する。
@@ -78,8 +79,26 @@ async def enrich_and_reply_pending_messages(
     success_count = 0
     error_count = 0
     skipped_count = 0
+    start_time = time.time()
 
-    for message in messages:
+    for i, message in enumerate(messages):
+        # タイムアウトチェック
+        if timeout is not None:
+            elapsed = time.time() - start_time
+            if elapsed >= timeout:
+                remaining_count = len(messages) - i
+                logger.warning(
+                    f"タイムアウト: {elapsed:.1f}秒経過、残り{remaining_count}件のメッセージは未処理"
+                )
+                return EnrichAndReplyResult(
+                    processed_count=i,
+                    success_count=success_count,
+                    error_count=error_count,
+                    skipped_count=skipped_count,
+                    timed_out=True,
+                    remaining_count=remaining_count,
+                )
+
         try:
             urls = extract_urls(message)
             if not urls:

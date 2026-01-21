@@ -169,3 +169,54 @@ async def test_run_calls_enrich_and_reply_pending_messages() -> None:
 
     # enrich_and_reply_pending_messagesが少なくとも1回呼ばれたことを確認
     mock_slack_client.fetch_unreplied_messages.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_enrich_and_reply_pending_messages_timeout() -> None:
+    """処理がtimeout秒を超えた場合に中断して結果を返すことをテスト"""
+
+    def create_slow_query_func() -> QueryFunc:
+        async def mock_query(*args: object, **kwargs: object) -> AsyncIterator[ResultMessage]:
+            # 各クエリに2秒かかる
+            await asyncio.sleep(2)
+            yield ResultMessage(
+                is_error=False,
+                result="success",
+                structured_output={"markdown": "# 要約"},
+                subtype="normal",
+                duration_ms=2000,
+                duration_api_ms=1800,
+                num_turns=1,
+                session_id="test-session",
+            )
+
+        return mock_query
+
+    mock_slack_client = AsyncMock()
+    # 5件のメッセージがあるが、タイムアウトで全部処理できない
+    mock_slack_client.fetch_unreplied_messages.return_value = [
+        SlackMessage(ts="1", text="<https://example1.com>", reply_count=0),
+        SlackMessage(ts="2", text="<https://example2.com>", reply_count=0),
+        SlackMessage(ts="3", text="<https://example3.com>", reply_count=0),
+        SlackMessage(ts="4", text="<https://example4.com>", reply_count=0),
+        SlackMessage(ts="5", text="<https://example5.com>", reply_count=0),
+    ]
+    mock_slack_client.post_thread_reply.return_value = "reply_ts"
+
+    mock_query_func = create_slow_query_func()
+
+    # 1秒でタイムアウト（1件目は処理できるが、2件目の前にタイムアウト）
+    result = await enrich_and_reply_pending_messages(
+        slack_client=mock_slack_client,
+        query_func=mock_query_func,
+        channel_id="C0123456789",
+        message_limit=100,
+        timeout=1,
+    )
+
+    # 1件目は開始時elapsed=0なので処理が始まり完了する（2秒）
+    # 2件目の開始前チェックでelapsed=2秒>timeout=1秒なのでタイムアウト
+    assert result.timed_out is True
+    assert result.success_count == 1
+    assert result.remaining_count == 4
+    assert result.processed_count == 1
