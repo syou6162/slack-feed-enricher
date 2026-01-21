@@ -57,8 +57,8 @@ class TestLoadConfig:
         assert config.polling_interval == 300
         assert config.message_limit == 20
 
-    def test_load_config_with_default_yaml_values(self, tmp_path: Path) -> None:
-        """YAMLファイルが空の場合デフォルト値を使用すること"""
+    def test_load_config_with_empty_yaml_fails(self, tmp_path: Path) -> None:
+        """YAMLファイルが空の場合にエラーになること"""
         config_file = tmp_path / "config.yaml"
         config_file.write_text("")
 
@@ -67,11 +67,8 @@ class TestLoadConfig:
             "RSS_FEED_CHANNEL_ID": "C9876543210",
         }
 
-        with patch.dict(os.environ, test_env, clear=False):
-            config = load_config(config_file)
-
-        assert config.polling_interval == 600
-        assert config.message_limit == 10
+        with patch.dict(os.environ, test_env, clear=False), pytest.raises(ValueError, match="Config file is empty"):
+            load_config(config_file)
 
     def test_load_config_fails_when_env_missing(self, tmp_path: Path) -> None:
         """環境変数が欠けている場合にエラーになること"""

@@ -70,13 +70,12 @@ class TestLoadAppConfig:
         assert config.message_limit == 10  # デフォルト値
 
     def test_load_empty_yaml(self, tmp_path: Path) -> None:
-        """空のYAMLファイルの場合、全てデフォルト値が使われること"""
+        """空のYAMLファイルの場合にエラーになること"""
         config_file = tmp_path / "config.yaml"
         config_file.write_text("")
 
-        config = load_app_config(config_file)
-        assert config.polling_interval == 600
-        assert config.message_limit == 10
+        with pytest.raises(ValueError, match="Config file is empty"):
+            load_app_config(config_file)
 
     def test_load_fails_when_file_not_exists(self) -> None:
         """ファイルが存在しない場合にエラーになること"""
