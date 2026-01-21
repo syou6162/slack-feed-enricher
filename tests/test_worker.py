@@ -1,6 +1,8 @@
 """workerモジュールのテスト"""
 
+import asyncio
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from unittest.mock import AsyncMock
 
 import pytest
@@ -8,7 +10,7 @@ from claude_agent_sdk import ResultMessage
 
 from slack_feed_enricher.slack import SlackMessage
 from slack_feed_enricher.slack.exceptions import SlackAPIError
-from slack_feed_enricher.worker import QueryFunc, enrich_and_reply_pending_messages, send_enriched_messages
+from slack_feed_enricher.worker import QueryFunc, enrich_and_reply_pending_messages, run, send_enriched_messages
 
 
 @pytest.mark.asyncio
@@ -121,3 +123,49 @@ async def test_enrich_and_reply_pending_messages_continues_on_error() -> None:
     assert result.processed_count == 3
     assert result.success_count == 2
     assert result.error_count == 1
+
+
+@pytest.mark.asyncio
+async def test_run_calls_enrich_and_reply_pending_messages() -> None:
+    """ポーリングループがenrich_and_reply_pending_messagesを呼び出すことをテスト"""
+
+    def create_mock_query_func(markdown: str) -> QueryFunc:
+        async def mock_query(*args: object, **kwargs: object) -> AsyncIterator[ResultMessage]:
+            yield ResultMessage(
+                is_error=False,
+                result="success",
+                structured_output={"markdown": markdown},
+                subtype="normal",
+                duration_ms=1000,
+                duration_api_ms=800,
+                num_turns=1,
+                session_id="test-session",
+            )
+
+        return mock_query
+
+    mock_slack_client = AsyncMock()
+    mock_slack_client.fetch_unreplied_messages.return_value = []
+
+    mock_query_func = create_mock_query_func("# 要約")
+
+    # 1回の呼び出し後にCancelledErrorを投げてループを止める
+    task = asyncio.create_task(
+        run(
+            slack_client=mock_slack_client,
+            query_func=mock_query_func,
+            channel_id="C0123456789",
+            message_limit=100,
+            polling_interval=1,
+        )
+    )
+
+    # 少し待ってからキャンセル
+    await asyncio.sleep(0.1)
+    task.cancel()
+
+    with suppress(asyncio.CancelledError):
+        await task
+
+    # enrich_and_reply_pending_messagesが少なくとも1回呼ばれたことを確認
+    mock_slack_client.fetch_unreplied_messages.assert_called()

@@ -1,5 +1,6 @@
 """ポーリングワーカー"""
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
@@ -103,3 +104,38 @@ async def enrich_and_reply_pending_messages(
         error_count=error_count,
         skipped_count=skipped_count,
     )
+
+
+async def run(
+    slack_client: SlackClient,
+    query_func: QueryFunc,
+    channel_id: str,
+    message_limit: int,
+    polling_interval: int,
+) -> None:
+    """
+    ポーリングループを実行する。
+
+    Args:
+        slack_client: Slackクライアント
+        query_func: Claude Agent SDKのquery関数
+        channel_id: チャンネルID
+        message_limit: 取得するメッセージ数
+        polling_interval: ポーリング間隔（秒）
+    """
+    logger.info("ポーリングループ開始: polling_interval=%d秒", polling_interval)
+
+    try:
+        while True:
+            await enrich_and_reply_pending_messages(
+                slack_client=slack_client,
+                query_func=query_func,
+                channel_id=channel_id,
+                message_limit=message_limit,
+            )
+            await asyncio.sleep(polling_interval)
+    except asyncio.CancelledError:
+        logger.info("ポーリングループがキャンセルされました")
+        raise
+    finally:
+        logger.info("ポーリングループ終了")
