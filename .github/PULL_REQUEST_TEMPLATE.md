@@ -1,7 +1,6 @@
 <!--
 参考情報:
 - プランファイル（.claude/plans/）があれば、その内容を参照
-- SpecWorkflowを使用している場合は、specファイルのpurpose/designセクションを参照
 -->
 
 ## 背景 (Why)
