@@ -10,17 +10,27 @@ logger = logging.getLogger(__name__)
 
 QueryFunc = Callable[..., AsyncIterator[Any]]
 
+# 構造化出力スキーマ
+OUTPUT_SCHEMA = {
+    "type": "json_schema",
+    "schema": {
+        "type": "object",
+        "properties": {
+            "markdown": {"type": "string", "description": "Slackスレッドに投稿するmarkdown形式の整形済みテキスト"}
+        },
+        "required": ["markdown"]
+    }
+}
+
 
 async def fetch_and_summarize(
     query_func: QueryFunc,
-    options: ClaudeAgentOptions,
     urls: list[str],
 ) -> str:
     """URLリストの内容をWebFetchで取得し、markdown形式で要約する
 
     Args:
         query_func: claude_agent_sdk.query関数（またはモック）
-        options: ClaudeAgentOptions（output_format等を設定済み）
         urls: 要約対象のURLリスト
 
     Returns:
@@ -45,6 +55,13 @@ URL:
 - 主要なポイント（箇条書き）
 - 一言まとめ
 """
+
+    # ClaudeAgentOptions作成
+    options = ClaudeAgentOptions(
+        output_format=OUTPUT_SCHEMA,
+        permission_mode="acceptEdits",
+        allowed_tools=["WebFetch"],
+    )
 
     # query実行
     result_message: ResultMessage | None = None

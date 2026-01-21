@@ -20,10 +20,8 @@ class TestFetchAndSummarize:
             """モックquery関数"""
             yield None
 
-        mock_options = None
-
         with pytest.raises(ValueError, match="URLリストが空です"):
-            await fetch_and_summarize(mock_query, mock_options, [])
+            await fetch_and_summarize(mock_query, [])
 
     @pytest.mark.asyncio
     async def test_returns_markdown_for_single_url(self) -> None:
@@ -36,9 +34,7 @@ class TestFetchAndSummarize:
             """モックquery関数"""
             yield mock_result
 
-        mock_options = None
-
-        result = await fetch_and_summarize(mock_query, mock_options, ["https://example.com"])
+        result = await fetch_and_summarize(mock_query, ["https://example.com"])
 
         assert result == "# タイトル\n- ポイント1"
 
@@ -57,10 +53,8 @@ class TestFetchAndSummarize:
             assert "https://example2.com" in prompt
             yield mock_result
 
-        mock_options = None
-
         result = await fetch_and_summarize(
-            mock_query, mock_options, ["https://example1.com", "https://example2.com"]
+            mock_query, ["https://example1.com", "https://example2.com"]
         )
 
         assert "# 要約" in result
@@ -76,10 +70,8 @@ class TestFetchAndSummarize:
             """モックquery関数"""
             yield mock_result
 
-        mock_options = None
-
         with pytest.raises(RuntimeError, match="要約処理でエラーが発生しました"):
-            await fetch_and_summarize(mock_query, mock_options, ["https://example.com"])
+            await fetch_and_summarize(mock_query, ["https://example.com"])
 
     @pytest.mark.asyncio
     async def test_raises_runtime_error_when_structured_output_is_none(self) -> None:
@@ -92,7 +84,5 @@ class TestFetchAndSummarize:
             """モックquery関数"""
             yield mock_result
 
-        mock_options = None
-
         with pytest.raises(RuntimeError, match="構造化出力が取得できませんでした"):
-            await fetch_and_summarize(mock_query, mock_options, ["https://example.com"])
+            await fetch_and_summarize(mock_query, ["https://example.com"])

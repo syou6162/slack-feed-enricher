@@ -1,10 +1,18 @@
 import asyncio
+import logging
 from pathlib import Path
 
+from claude_agent_sdk import query
 from slack_sdk.web.async_client import AsyncWebClient
 
+from slack_feed_enricher.claude import fetch_and_summarize
 from slack_feed_enricher.config import load_config
 from slack_feed_enricher.slack import SlackClient, extract_urls
+
+logging.basicConfig(level=logging.INFO)
+
+# 動作確認用にメッセージ数を制限
+TEST_MESSAGE_LIMIT = 3
 
 
 async def main() -> None:
@@ -21,7 +29,7 @@ async def main() -> None:
     print(f"\nFetching unreplied messages from channel {config.rss_feed_channel_id}...")
     messages = await slack_client.fetch_unreplied_messages(
         config.rss_feed_channel_id,
-        limit=config.message_limit,
+        limit=TEST_MESSAGE_LIMIT,  # 動作確認用に制限
     )
 
     print(f"Found {len(messages)} unreplied messages:")
@@ -33,6 +41,13 @@ async def main() -> None:
         urls = extract_urls(msg)
         if urls:
             print(f"    URLs: {urls}")
+
+            # Claude Agent SDKで要約取得
+            try:
+                result = await fetch_and_summarize(query, urls)
+                print(f"    Summary (JSON): {result}")
+            except Exception as e:
+                print(f"    Summary error: {e}")
         else:
             print("    URLs: (none)")
 
