@@ -1,7 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "slack-feed-enricher"
 version = "0.1.0"
-description = "Add your description here"
+description = "Slack RSS feedを自動処理してスレッド返信するツール"
 readme = "README.md"
-requires-python = ">=3.14"
-dependencies = []
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "ruff==0.14.13",
+    "ty==0.0.12",
+    "pytest==9.0.2",
+    "pytest-asyncio==1.3.0",
+]
+
+[project.scripts]
+slack-feed-enricher = "slack_feed_enricher.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/slack_feed_enricher"]
+
+[tool.ruff]
+line-length = 200
+
+[tool.ruff.lint]
+select = [
+    "I",       # isort（インポート順）
+    "UP",      # pyupgrade（モダン構文化）
+    "F",       # pyflakes（未使用import等）
+    "RET",     # flake8-return（return文の改善）
+    "SIM",     # flake8-simplify（コード簡略化）
+    "B",       # flake8-bugbear（バグ防止）
+    "N",       # pep8-naming（命名規則）
+    "DTZ",     # flake8-datetimez（タイムゾーン必須）
+    "ARG",     # flake8-unused-arguments（未使用引数）
+    "PL",      # Pylint（コード品質）
+    "W",       # pycodestyle warning
+    "E",       # pycodestyle error
+    "ANN",     # Type annotations
+    "TID251",  # Banned imports
+]
+ignore = [
+    "PLR2004", # Magic value（HTTPステータスコード等は意図的）
+    "PLR0911", # return文が多い（複雑なハンドラー関数では許容）
+    "PLR0912", # 分岐が多い（複雑なハンドラー関数では許容）
+    "PLR0913", # 引数が多い（DIパターンでは許容）
+    "SIM108",  # 三項演算子の強制（可読性が下がるケースが多い）
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ARG"]  # テストのモック関数では未使用引数が一般的
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
+asyncio_mode = "auto"
