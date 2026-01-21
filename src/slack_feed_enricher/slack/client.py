@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 from slack_sdk.web.async_client import AsyncWebClient
 
+from slack_feed_enricher.slack.exceptions import SlackAPIError
+
 
 @dataclass
 class SlackMessage:
@@ -66,3 +68,29 @@ class SlackClient:
 
         # reply_countが0のメッセージのみをフィルタリング
         return [msg for msg in all_messages if msg.reply_count == 0]
+
+    async def post_thread_reply(self, channel_id: str, thread_ts: str, text: str) -> str:
+        """スレッドに返信を投稿する
+
+        Args:
+            channel_id: 投稿先のチャンネルID
+            thread_ts: 返信先の親メッセージのタイムスタンプ
+            text: 投稿するメッセージ本文（Markdown形式）
+
+        Returns:
+            str: 投稿されたメッセージのタイムスタンプ（ts）
+
+        Raises:
+            SlackAPIError: Slack API呼び出しでエラーが発生した場合
+        """
+        response = await self._client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=thread_ts,
+            text=text,
+        )
+
+        if not response.get("ok"):
+            error_code = response.get("error", "unknown_error")
+            raise SlackAPIError(f"Failed to post thread reply: {error_code}", error_code)
+
+        return response["ts"]
