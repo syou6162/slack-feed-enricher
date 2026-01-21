@@ -4,7 +4,7 @@ from pathlib import Path
 from slack_sdk.web.async_client import AsyncWebClient
 
 from slack_feed_enricher.config import load_config
-from slack_feed_enricher.slack import SlackClient
+from slack_feed_enricher.slack import SlackClient, extract_urls
 
 
 async def main() -> None:
@@ -28,6 +28,13 @@ async def main() -> None:
     for msg in messages:
         print(f"  - ts={msg.ts}, reply_count={msg.reply_count}")
         print(f"    text: {msg.text[:100]}..." if len(msg.text) > 100 else f"    text: {msg.text}")
+
+        # URL抽出
+        urls = extract_urls(msg)
+        if urls:
+            print(f"    URLs: {urls}")
+        else:
+            print("    URLs: (none)")
 
 
 if __name__ == "__main__":
