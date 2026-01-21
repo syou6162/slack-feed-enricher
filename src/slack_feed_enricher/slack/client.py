@@ -23,7 +23,26 @@ class SlackClient:
 
     async def fetch_channel_history(self, channel_id: str, limit: int = 100) -> list[SlackMessage]:
         """チャンネルの履歴をN件取得"""
-        raise NotImplementedError
+        response = await self._client.conversations_history(
+            channel=channel_id,
+            limit=limit,
+        )
+
+        if not response.get("ok"):
+            error = response.get("error", "unknown_error")
+            raise ValueError(error)
+
+        messages = []
+        for msg in response["messages"]:
+            messages.append(
+                SlackMessage(
+                    ts=msg["ts"],
+                    text=msg.get("text", ""),
+                    reply_count=msg.get("reply_count", 0),
+                )
+            )
+
+        return messages
 
     async def has_thread_replies(self, channel_id: str, message_ts: str) -> bool:
         """メッセージにスレッド返信があるかを確認"""
