@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 
 class AppConfig(BaseModel):
@@ -26,7 +26,8 @@ def load_app_config(config_path: Path) -> AppConfig:
 
     Raises:
         FileNotFoundError: 設定ファイルが存在しない場合
-        ValueError: 設定ファイルが不正な場合
+        ValueError: YAMLファイルが不正な場合
+        ValidationError: 設定値が不正な場合
     """
     if not config_path.exists():
         msg = f"Config file not found: {config_path}"
@@ -36,11 +37,9 @@ def load_app_config(config_path: Path) -> AppConfig:
         with config_path.open() as f:
             data = yaml.safe_load(f)
             if data is None:
-                data = {}
+                msg = f"Config file is empty: {config_path}"
+                raise ValueError(msg)
             return AppConfig(**data)
     except yaml.YAMLError as e:
         msg = f"Invalid YAML file: {e}"
-        raise ValueError(msg) from e
-    except ValidationError as e:
-        msg = f"Invalid configuration: {e}"
         raise ValueError(msg) from e

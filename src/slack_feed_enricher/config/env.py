@@ -2,7 +2,7 @@
 
 import os
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 
 class EnvConfig(BaseModel):
@@ -22,6 +22,7 @@ def load_env_config() -> EnvConfig:
 
     Raises:
         ValueError: 必須環境変数が欠けている場合
+        ValidationError: 環境変数の値が不正な場合
     """
     try:
         return EnvConfig(
@@ -30,7 +31,4 @@ def load_env_config() -> EnvConfig:
         )
     except KeyError as e:
         msg = f"Required environment variable is missing: {e}"
-        raise ValueError(msg) from e
-    except ValidationError as e:
-        msg = f"Invalid environment variable: {e}"
         raise ValueError(msg) from e
