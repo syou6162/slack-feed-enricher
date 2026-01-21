@@ -6,6 +6,12 @@ from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
 
+from slack_feed_enricher.claude.exceptions import (
+    ClaudeAPIError,
+    NoResultMessageError,
+    StructuredOutputError,
+)
+
 logger = logging.getLogger(__name__)
 
 QueryFunc = Callable[..., AsyncIterator[Any]]
@@ -38,7 +44,9 @@ async def fetch_and_summarize(
 
     Raises:
         ValueError: URLリストが空の場合
-        RuntimeError: Claude SDKでエラーが発生した場合
+        NoResultMessageError: ResultMessageが取得できなかった場合
+        ClaudeAPIError: Claude APIでエラーが発生した場合
+        StructuredOutputError: 構造化出力が取得できなかった場合
     """
     if not urls:
         raise ValueError("URLリストが空です")
@@ -71,12 +79,12 @@ URL:
             result_message = message
 
     if result_message is None:
-        raise RuntimeError("ResultMessageが取得できませんでした")
+        raise NoResultMessageError("ResultMessageが取得できませんでした")
 
     if result_message.is_error:
-        raise RuntimeError(f"要約処理でエラーが発生しました: {result_message.result}")
+        raise ClaudeAPIError("要約処理でエラーが発生しました", result_message.result)
 
     if result_message.structured_output is None:
-        raise RuntimeError("構造化出力が取得できませんでした")
+        raise StructuredOutputError("構造化出力が取得できませんでした")
 
     return result_message.structured_output["markdown"]

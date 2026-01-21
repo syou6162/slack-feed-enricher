@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 from claude_agent_sdk import ResultMessage
 
+from slack_feed_enricher.claude.exceptions import ClaudeAPIError, StructuredOutputError
 from slack_feed_enricher.claude.summarizer import fetch_and_summarize
 
 
@@ -60,8 +61,8 @@ class TestFetchAndSummarize:
         assert "# 要約" in result
 
     @pytest.mark.asyncio
-    async def test_raises_runtime_error_on_sdk_error(self) -> None:
-        """SDKエラー時にRuntimeErrorが発生すること"""
+    async def test_raises_claude_api_error_on_sdk_error(self) -> None:
+        """SDKエラー時にClaudeAPIErrorが発生すること"""
         mock_result = AsyncMock(spec=ResultMessage)
         mock_result.is_error = True
         mock_result.result = "API error"
@@ -70,12 +71,14 @@ class TestFetchAndSummarize:
             """モックquery関数"""
             yield mock_result
 
-        with pytest.raises(RuntimeError, match="要約処理でエラーが発生しました"):
+        with pytest.raises(ClaudeAPIError, match="要約処理でエラーが発生しました") as exc_info:
             await fetch_and_summarize(mock_query, ["https://example.com"])
 
+        assert exc_info.value.result == "API error"
+
     @pytest.mark.asyncio
-    async def test_raises_runtime_error_when_structured_output_is_none(self) -> None:
-        """structured_outputがNoneの場合にRuntimeErrorが発生すること"""
+    async def test_raises_structured_output_error_when_structured_output_is_none(self) -> None:
+        """structured_outputがNoneの場合にStructuredOutputErrorが発生すること"""
         mock_result = AsyncMock(spec=ResultMessage)
         mock_result.is_error = False
         mock_result.structured_output = None
@@ -84,5 +87,5 @@ class TestFetchAndSummarize:
             """モックquery関数"""
             yield mock_result
 
-        with pytest.raises(RuntimeError, match="構造化出力が取得できませんでした"):
+        with pytest.raises(StructuredOutputError, match="構造化出力が取得できませんでした"):
             await fetch_and_summarize(mock_query, ["https://example.com"])
