@@ -200,6 +200,7 @@ dependencies = [
     { name = "pytest-asyncio" },
     { name = "pyyaml" },
     { name = "ruff" },
+    { name = "slack-sdk" },
     { name = "ty" },
 ]
 
@@ -210,7 +211,17 @@ requires-dist = [
     { name = "pytest-asyncio", specifier = "==1.3.0" },
     { name = "pyyaml", specifier = "==6.0.3" },
     { name = "ruff", specifier = "==0.14.13" },
+    { name = "slack-sdk", specifier = "==3.27.0" },
     { name = "ty", specifier = "==0.0.12" },
+]
+
+[[package]]
+name = "slack-sdk"
+version = "3.27.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/86/a7/02d529d734891be08b34398950ec9a855ab03f8b565d916d498a45db124f/slack_sdk-3.27.0.tar.gz", hash = "sha256:811472ce598db855ab3c02f098fa430323ccb253cfe17ba20c7b05ab206d984d", size = 227276, upload-time = "2024-02-13T06:28:42.596Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/da/db/ee0340f739b87590c65cba4c6889358b78c01d8ec04fc94b29076057e190/slack_sdk-3.27.0-py2.py3-none-any.whl", hash = "sha256:a901c68cb5547d5459cdefd81343d116db56d65f6b33f4081ddf1cdd243bf07e", size = 285689, upload-time = "2024-02-13T06:28:39.476Z" },
 ]
 
 [[package]]
