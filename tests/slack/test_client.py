@@ -80,3 +80,58 @@ async def test_fetch_channel_history_api_error() -> None:
 
     with pytest.raises(ValueError, match="channel_not_found"):
         await client.fetch_channel_history("C_INVALID")
+
+
+@pytest.mark.asyncio
+async def test_has_thread_replies_with_replies() -> None:
+    """スレッド返信がある場合にTrueを返すこと"""
+    mock_client = AsyncMock()
+    mock_client.conversations_replies.return_value = {
+        "ok": True,
+        "messages": [
+            {"ts": "1234567890.123456", "text": "親メッセージ"},
+            {"ts": "1234567891.123456", "text": "返信1"},
+        ],
+    }
+
+    client = SlackClient(mock_client)
+    result = await client.has_thread_replies("C0123456789", "1234567890.123456")
+
+    assert result is True
+    mock_client.conversations_replies.assert_called_once_with(
+        channel="C0123456789",
+        ts="1234567890.123456",
+        limit=2,
+    )
+
+
+@pytest.mark.asyncio
+async def test_has_thread_replies_without_replies() -> None:
+    """スレッド返信がない場合にFalseを返すこと"""
+    mock_client = AsyncMock()
+    mock_client.conversations_replies.return_value = {
+        "ok": True,
+        "messages": [
+            {"ts": "1234567890.123456", "text": "親メッセージのみ"},
+        ],
+    }
+
+    client = SlackClient(mock_client)
+    result = await client.has_thread_replies("C0123456789", "1234567890.123456")
+
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_has_thread_replies_api_error() -> None:
+    """API呼び出しが失敗した場合の処理"""
+    mock_client = AsyncMock()
+    mock_client.conversations_replies.return_value = {
+        "ok": False,
+        "error": "thread_not_found",
+    }
+
+    client = SlackClient(mock_client)
+
+    with pytest.raises(ValueError, match="thread_not_found"):
+        await client.has_thread_replies("C0123456789", "invalid_ts")
