@@ -135,3 +135,42 @@ async def test_has_thread_replies_api_error() -> None:
 
     with pytest.raises(ValueError, match="thread_not_found"):
         await client.has_thread_replies("C0123456789", "invalid_ts")
+
+
+@pytest.mark.asyncio
+async def test_fetch_unreplied_messages_filters_replied() -> None:
+    """返信済みメッセージをスキップして未返信メッセージのみ返すこと"""
+    mock_client = AsyncMock()
+    mock_client.conversations_history.return_value = {
+        "ok": True,
+        "messages": [
+            {"ts": "1", "text": "msg1", "reply_count": 0},
+            {"ts": "2", "text": "msg2", "reply_count": 5},  # 返信あり
+            {"ts": "3", "text": "msg3", "reply_count": 0},
+        ],
+    }
+
+    client = SlackClient(mock_client)
+    messages = await client.fetch_unreplied_messages("C0123456789")
+
+    assert len(messages) == 2
+    assert messages[0].ts == "1"
+    assert messages[1].ts == "3"
+
+
+@pytest.mark.asyncio
+async def test_fetch_unreplied_messages_all_replied() -> None:
+    """全てのメッセージが返信済みの場合は空リストを返すこと"""
+    mock_client = AsyncMock()
+    mock_client.conversations_history.return_value = {
+        "ok": True,
+        "messages": [
+            {"ts": "1", "text": "msg1", "reply_count": 2},
+            {"ts": "2", "text": "msg2", "reply_count": 1},
+        ],
+    }
+
+    client = SlackClient(mock_client)
+    messages = await client.fetch_unreplied_messages("C0123456789")
+
+    assert len(messages) == 0
