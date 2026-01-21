@@ -60,7 +60,7 @@ URL:
     options = ClaudeAgentOptions(
         output_format=OUTPUT_SCHEMA,
         permission_mode="acceptEdits",
-        allowed_tools=["WebFetch"],
+        allowed_tools=["WebFetch", "WebSearch"],
     )
 
     # query実行
