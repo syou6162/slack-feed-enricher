@@ -151,6 +151,7 @@ async def run(
                 query_func=query_func,
                 channel_id=channel_id,
                 message_limit=message_limit,
+                timeout=polling_interval,
             )
             await asyncio.sleep(polling_interval)
     except asyncio.CancelledError:
