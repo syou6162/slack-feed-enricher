@@ -46,7 +46,19 @@ class SlackClient:
 
     async def has_thread_replies(self, channel_id: str, message_ts: str) -> bool:
         """メッセージにスレッド返信があるかを確認"""
-        raise NotImplementedError
+        response = await self._client.conversations_replies(
+            channel=channel_id,
+            ts=message_ts,
+            limit=2,
+        )
+
+        if not response.get("ok"):
+            error = response.get("error", "unknown_error")
+            raise ValueError(error)
+
+        # messages配列の最初は親メッセージ
+        # 2件以上あれば返信がある
+        return len(response["messages"]) > 1
 
     async def fetch_unreplied_messages(self, channel_id: str, limit: int = 100) -> list[SlackMessage]:
         """返信のないメッセージのみをフィルタリングして取得"""
