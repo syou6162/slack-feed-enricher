@@ -1,6 +1,6 @@
-def main():
-    print("Hello from slack-feed-enricher!")
+def main() -> str:
+    return "Hello, World!"
 
 
 if __name__ == "__main__":
-    main()
+    print(main())
