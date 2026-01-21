@@ -1,15 +1,10 @@
 from pathlib import Path
 
-from dotenv import load_dotenv
-
 from slack_feed_enricher.config import load_config
 
 
 def main() -> str:
     """アプリケーションのエントリーポイント"""
-    # .envファイルを読み込み
-    load_dotenv()
-
     # 統合設定を読み込み
     config = load_config(Path("config.yaml"))
 

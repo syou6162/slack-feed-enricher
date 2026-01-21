@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 from slack_feed_enricher.config.app import load_app_config
@@ -35,6 +36,9 @@ def load_config(config_path: Path) -> Config:
         ValueError: 必須の環境変数が欠けている場合
         FileNotFoundError: YAMLファイルが存在しない場合
     """
+    # .envファイルを読み込み
+    load_dotenv()
+
     env_config = load_env_config()
     app_config = load_app_config(config_path)
 
