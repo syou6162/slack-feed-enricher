@@ -1,6 +1,10 @@
 """SlackClientのテスト"""
 
-from slack_feed_enricher.slack.client import SlackMessage
+from unittest.mock import AsyncMock
+
+import pytest
+
+from slack_feed_enricher.slack.client import SlackClient, SlackMessage
 
 
 def test_slack_message_creation() -> None:
@@ -14,3 +18,11 @@ def test_slack_message_creation() -> None:
     assert msg.ts == "1234567890.123456"
     assert msg.text == "テストメッセージ"
     assert msg.reply_count == 0
+
+
+@pytest.mark.asyncio
+async def test_slack_client_initialization() -> None:
+    """SlackClientが正しく初期化できること"""
+    mock_client = AsyncMock()
+    client = SlackClient(mock_client)
+    assert client._client is mock_client
