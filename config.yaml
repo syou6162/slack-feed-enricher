@@ -1,0 +1,2 @@
+polling_interval: 600
+message_limit: 10
