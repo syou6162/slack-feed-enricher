@@ -62,4 +62,7 @@ class SlackClient:
 
     async def fetch_unreplied_messages(self, channel_id: str, limit: int = 100) -> list[SlackMessage]:
         """返信のないメッセージのみをフィルタリングして取得"""
-        raise NotImplementedError
+        all_messages = await self.fetch_channel_history(channel_id, limit)
+
+        # reply_countが0のメッセージのみをフィルタリング
+        return [msg for msg in all_messages if msg.reply_count == 0]
