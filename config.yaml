@@ -1,2 +1,2 @@
 polling_interval: 600
-message_limit: 3  # 動作確認用に制限
+message_limit: 200

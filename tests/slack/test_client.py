@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from slack_feed_enricher.slack.client import SlackClient, SlackMessage
+from slack_feed_enricher.slack.exceptions import SlackAPIError
 
 
 def test_slack_message_creation() -> None:
@@ -174,3 +175,80 @@ async def test_fetch_unreplied_messages_all_replied() -> None:
     messages = await client.fetch_unreplied_messages("C0123456789")
 
     assert len(messages) == 0
+
+
+@pytest.mark.asyncio
+async def test_post_thread_reply_success() -> None:
+    """スレッド返信が正常に投稿できること"""
+    mock_client = AsyncMock()
+    mock_client.chat_postMessage.return_value = {
+        "ok": True,
+        "ts": "1234567892.123456",
+        "channel": "C0123456789",
+        "message": {
+            "ts": "1234567892.123456",
+            "text": "テスト返信メッセージ",
+        },
+    }
+
+    client = SlackClient(mock_client)
+    result_ts = await client.post_thread_reply(
+        channel_id="C0123456789",
+        thread_ts="1234567890.123456",
+        text="テスト返信メッセージ",
+    )
+
+    assert result_ts == "1234567892.123456"
+    mock_client.chat_postMessage.assert_called_once_with(
+        channel="C0123456789",
+        thread_ts="1234567890.123456",
+        text="テスト返信メッセージ",
+    )
+
+
+@pytest.mark.asyncio
+async def test_post_thread_reply_api_error() -> None:
+    """API呼び出しが失敗した場合に適切にエラーハンドリングすること"""
+    mock_client = AsyncMock()
+    mock_client.chat_postMessage.return_value = {
+        "ok": False,
+        "error": "channel_not_found",
+    }
+
+    client = SlackClient(mock_client)
+
+    with pytest.raises(SlackAPIError) as exc_info:
+        await client.post_thread_reply(
+            channel_id="C_INVALID",
+            thread_ts="1234567890.123456",
+            text="テストメッセージ",
+        )
+
+    assert exc_info.value.error_code == "channel_not_found"
+
+
+@pytest.mark.asyncio
+async def test_post_thread_reply_with_markdown() -> None:
+    """Markdown形式のテキストがそのまま送信されること"""
+    mock_client = AsyncMock()
+    markdown_text = """## 記事の要約
+
+- ポイント1
+- ポイント2
+
+**重要**: これは重要なテキストです。"""
+
+    mock_client.chat_postMessage.return_value = {
+        "ok": True,
+        "ts": "1234567892.123456",
+    }
+
+    client = SlackClient(mock_client)
+    await client.post_thread_reply(
+        channel_id="C0123456789",
+        thread_ts="1234567890.123456",
+        text=markdown_text,
+    )
+
+    call_args = mock_client.chat_postMessage.call_args
+    assert call_args.kwargs["text"] == markdown_text

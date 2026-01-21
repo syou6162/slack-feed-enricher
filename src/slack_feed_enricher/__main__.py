@@ -7,7 +7,7 @@ from slack_sdk.web.async_client import AsyncWebClient
 
 from slack_feed_enricher.claude import fetch_and_summarize
 from slack_feed_enricher.config import load_config
-from slack_feed_enricher.slack import SlackClient, extract_urls
+from slack_feed_enricher.slack import SlackAPIError, SlackClient, extract_urls
 
 logging.basicConfig(level=logging.INFO)
 
@@ -42,9 +42,19 @@ async def main() -> None:
             # Claude Agent SDKで要約取得
             try:
                 result = await fetch_and_summarize(query, urls)
-                print(f"    Summary (JSON): {result}")
+                print(f"    Summary: {result[:100]}...")
+
+                # スレッドに返信を投稿
+                reply_ts = await slack_client.post_thread_reply(
+                    channel_id=config.rss_feed_channel_id,
+                    thread_ts=msg.ts,
+                    text=result,
+                )
+                print(f"    Posted reply: ts={reply_ts}")
+            except SlackAPIError as e:
+                print(f"    Slack API error: {e.error_code}")
             except Exception as e:
-                print(f"    Summary error: {e}")
+                print(f"    Error: {e}")
         else:
             print("    URLs: (none)")
 
