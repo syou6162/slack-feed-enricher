@@ -31,32 +31,28 @@ OUTPUT_SCHEMA = {
 
 async def fetch_and_summarize(
     query_func: QueryFunc,
-    urls: list[str],
+    url: str,
 ) -> str:
-    """URLリストの内容をWebFetchで取得し、markdown形式で要約する
+    """URLの内容をWebFetchで取得し、markdown形式で要約する
 
     Args:
         query_func: claude_agent_sdk.query関数（またはモック）
-        urls: 要約対象のURLリスト
+        url: 要約対象のURL
 
     Returns:
         markdown形式の要約テキスト
 
     Raises:
-        ValueError: URLリストが空の場合
+        ValueError: URLが空の場合
         NoResultMessageError: ResultMessageが取得できなかった場合
         ClaudeAPIError: Claude APIでエラーが発生した場合
         StructuredOutputError: 構造化出力が取得できなかった場合
     """
-    if not urls:
-        raise ValueError("URLリストが空です")
+    if not url:
+        raise ValueError("URLが空です")
 
     # プロンプト構築
-    url_list = "\n".join(f"- {url}" for url in urls)
-    prompt = f"""以下のURLの内容をWebFetchで取得し、要約してください。
-
-URL:
-{url_list}
+    prompt = f"""{url} の内容をWebFetchで取得し、要約してください。
 
 要約はmarkdown形式で、以下を含めてください:
 - 記事のタイトル

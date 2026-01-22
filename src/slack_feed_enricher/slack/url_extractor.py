@@ -10,36 +10,21 @@ SLACK_URL_PATTERN = re.compile(r"<(https?://[^|>]+)(?:\|[^>]+)?>")
 PLAIN_URL_PATTERN = re.compile(r"https?://[^\s<>]+")
 
 
-def extract_urls(message: SlackMessage) -> list[str]:
-    """SlackMessageからURLを抽出して返す（重複除去）
+def extract_url(message: SlackMessage) -> str | None:
+    """SlackMessageから先頭のURLを抽出して返す
 
     Args:
         message: SlackMessage
 
     Returns:
-        抽出されたURLのリスト（重複なし、出現順）
+        抽出されたURL（URLがない場合はNone）
     """
-    urls = []
-    seen_urls = set()
-    slack_url_positions = set()
-
     # Slack形式のURL抽出
     for match in SLACK_URL_PATTERN.finditer(message.text):
-        url = match.group(1)
-        if url not in seen_urls:
-            urls.append(url)
-            seen_urls.add(url)
-        # Slack形式で既に抽出した位置を記録
-        slack_url_positions.add((match.start(), match.end()))
+        return match.group(1)
 
     # プレーンURLの抽出（Slack形式と重複しないように）
     for match in PLAIN_URL_PATTERN.finditer(message.text):
-        # Slack形式の範囲内にあるURLはスキップ
-        is_inside_slack_format = any(start <= match.start() < end for start, end in slack_url_positions)
-        if not is_inside_slack_format:
-            url = match.group(0)
-            if url not in seen_urls:
-                urls.append(url)
-                seen_urls.add(url)
+        return match.group(0)
 
-    return urls
+    return None
