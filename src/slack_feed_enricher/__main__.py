@@ -1,63 +1,64 @@
 import asyncio
 import logging
+import signal
 from pathlib import Path
 
 from claude_agent_sdk import query
 from slack_sdk.web.async_client import AsyncWebClient
 
-from slack_feed_enricher.claude import fetch_and_summarize
 from slack_feed_enricher.config import load_config
-from slack_feed_enricher.slack import SlackAPIError, SlackClient, extract_urls
+from slack_feed_enricher.slack import SlackClient
+from slack_feed_enricher.worker import run
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 async def main() -> None:
     """アプリケーションのエントリーポイント"""
     # 統合設定を読み込み
     config = load_config(Path("config.yaml"))
-    print(f"Config loaded: polling_interval={config.polling_interval}, message_limit={config.message_limit}")
+    logger.info(
+        "Config loaded: polling_interval=%d, message_limit=%d",
+        config.polling_interval,
+        config.message_limit,
+    )
 
     # Slack クライアントを初期化
     web_client = AsyncWebClient(token=config.slack_bot_token)
     slack_client = SlackClient(web_client)
 
-    # 未返信メッセージを取得
-    print(f"\nFetching unreplied messages from channel {config.rss_feed_channel_id}...")
-    messages = await slack_client.fetch_unreplied_messages(
-        config.rss_feed_channel_id,
-        limit=config.message_limit,
+    # ポーリングループを実行
+    await run(
+        slack_client=slack_client,
+        query_func=query,
+        channel_id=config.rss_feed_channel_id,
+        message_limit=config.message_limit,
+        polling_interval=config.polling_interval,
     )
 
-    print(f"Found {len(messages)} unreplied messages:")
-    for msg in messages:
-        print(f"  - ts={msg.ts}, reply_count={msg.reply_count}")
-        print(f"    text: {msg.text[:100]}..." if len(msg.text) > 100 else f"    text: {msg.text}")
 
-        # URL抽出
-        urls = extract_urls(msg)
-        if urls:
-            print(f"    URLs: {urls}")
+def setup_signal_handlers(loop: asyncio.AbstractEventLoop, task: asyncio.Task) -> None:
+    """シグナルハンドラを設定"""
 
-            # Claude Agent SDKで要約取得
-            try:
-                result = await fetch_and_summarize(query, urls)
-                print(f"    Summary: {result[:100]}...")
+    def handle_signal(sig: int) -> None:
+        logger.info("Received signal %d, shutting down...", sig)
+        task.cancel()
 
-                # スレッドに返信を投稿
-                reply_ts = await slack_client.post_thread_reply(
-                    channel_id=config.rss_feed_channel_id,
-                    thread_ts=msg.ts,
-                    text=result,
-                )
-                print(f"    Posted reply: ts={reply_ts}")
-            except SlackAPIError as e:
-                print(f"    Slack API error: {e.error_code}")
-            except Exception as e:
-                print(f"    Error: {e}")
-        else:
-            print("    URLs: (none)")
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, lambda s=sig: handle_signal(s))
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    main_task = loop.create_task(main())
+    setup_signal_handlers(loop, main_task)
+
+    try:
+        loop.run_until_complete(main_task)
+    except asyncio.CancelledError:
+        logger.info("Application stopped")
+    finally:
+        loop.close()
