@@ -14,15 +14,15 @@ class TestFetchAndSummarize:
     """fetch_and_summarize関数のテスト"""
 
     @pytest.mark.asyncio
-    async def test_raises_value_error_for_empty_urls(self) -> None:
-        """空のURLリストでValueErrorが発生すること"""
+    async def test_raises_value_error_for_empty_url(self) -> None:
+        """空のURLでValueErrorが発生すること"""
 
         async def mock_query(**kwargs: object) -> AsyncIterator[object]:  # noqa: ARG001
             """モックquery関数"""
             yield None
 
-        with pytest.raises(ValueError, match="URLリストが空です"):
-            await fetch_and_summarize(mock_query, [])
+        with pytest.raises(ValueError, match="URLが空です"):
+            await fetch_and_summarize(mock_query, "")
 
     @pytest.mark.asyncio
     async def test_returns_markdown_for_single_url(self) -> None:
@@ -35,30 +35,9 @@ class TestFetchAndSummarize:
             """モックquery関数"""
             yield mock_result
 
-        result = await fetch_and_summarize(mock_query, ["https://example.com"])
+        result = await fetch_and_summarize(mock_query, "https://example.com")
 
         assert result == "# タイトル\n- ポイント1"
-
-    @pytest.mark.asyncio
-    async def test_returns_markdown_for_multiple_urls(self) -> None:
-        """複数URLで要約markdownが返ること"""
-        mock_result = AsyncMock(spec=ResultMessage)
-        mock_result.is_error = False
-        mock_result.structured_output = {"markdown": "# 要約\n- URL1の内容\n- URL2の内容"}
-
-        async def mock_query(**kwargs: object) -> AsyncIterator[object]:  # noqa: ARG001
-            """モックquery関数"""
-            # プロンプトに両方のURLが含まれることを確認
-            prompt = kwargs.get("prompt", "")
-            assert "https://example1.com" in prompt
-            assert "https://example2.com" in prompt
-            yield mock_result
-
-        result = await fetch_and_summarize(
-            mock_query, ["https://example1.com", "https://example2.com"]
-        )
-
-        assert "# 要約" in result
 
     @pytest.mark.asyncio
     async def test_raises_claude_api_error_on_sdk_error(self) -> None:
@@ -72,7 +51,7 @@ class TestFetchAndSummarize:
             yield mock_result
 
         with pytest.raises(ClaudeAPIError, match="要約処理でエラーが発生しました") as exc_info:
-            await fetch_and_summarize(mock_query, ["https://example.com"])
+            await fetch_and_summarize(mock_query, "https://example.com")
 
         assert exc_info.value.result == "API error"
 
@@ -88,4 +67,4 @@ class TestFetchAndSummarize:
             yield mock_result
 
         with pytest.raises(StructuredOutputError, match="構造化出力が取得できませんでした"):
-            await fetch_and_summarize(mock_query, ["https://example.com"])
+            await fetch_and_summarize(mock_query, "https://example.com")
