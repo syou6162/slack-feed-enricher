@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from slack_feed_enricher.claude import fetch_and_summarize
-from slack_feed_enricher.slack import SlackClient, extract_urls
+from slack_feed_enricher.slack import SlackClient, extract_url
 
 logger = logging.getLogger(__name__)
 
@@ -100,12 +100,12 @@ async def enrich_and_reply_pending_messages(
                 )
 
         try:
-            urls = extract_urls(message)
-            if not urls:
+            url = extract_url(message)
+            if url is None:
                 skipped_count += 1
                 continue
 
-            summary = await fetch_and_summarize(query_func, urls)
+            summary = await fetch_and_summarize(query_func, url)
             await send_enriched_messages(
                 slack_client=slack_client,
                 channel_id=channel_id,
