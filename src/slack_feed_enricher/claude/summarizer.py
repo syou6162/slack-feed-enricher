@@ -65,7 +65,17 @@ def build_summary_prompt(url: str, supplementary_urls: list[str] | None = None) 
         構築されたプロンプト文字列
     """
     parts = [
-        "以下のURLの内容をすべてWebFetchで取得してください。",
+        "以下のURLをWebFetchで取得し、次の項目を抽出してください。",
+        "",
+        "抽出項目:",
+        "- meta.title: 記事のタイトル",
+        "- meta.url: 記事のURL",
+        "- meta.author: 著者名（はてなID、Twitter/X ID、本名など。不明ならnull）",
+        "- meta.category_large: 大カテゴリー（例: データエンジニアリング。不明ならnull）",
+        "- meta.category_medium: 中カテゴリー（例: BigQuery。不明ならnull）",
+        "- meta.published_at: 投稿日時（ISO 8601形式。不明ならnull）",
+        "- summary.points: 記事の核心を簡潔にまとめた箇条書き（1〜5項目）",
+        "- detail: 記事内容を構造化した詳細説明（markdown形式）",
         "",
         f"メインURL（記事本体）: {url}",
     ]

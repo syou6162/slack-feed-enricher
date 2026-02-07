@@ -194,7 +194,17 @@ class TestBuildSummaryPrompt:
         """メインURLのみ → 補足URLセクションなしのプロンプトが生成される"""
         prompt = build_summary_prompt("https://example.com/article")
         expected = (
-            "以下のURLの内容をすべてWebFetchで取得してください。\n"
+            "以下のURLをWebFetchで取得し、次の項目を抽出してください。\n"
+            "\n"
+            "抽出項目:\n"
+            "- meta.title: 記事のタイトル\n"
+            "- meta.url: 記事のURL\n"
+            "- meta.author: 著者名（はてなID、Twitter/X ID、本名など。不明ならnull）\n"
+            "- meta.category_large: 大カテゴリー（例: データエンジニアリング。不明ならnull）\n"
+            "- meta.category_medium: 中カテゴリー（例: BigQuery。不明ならnull）\n"
+            "- meta.published_at: 投稿日時（ISO 8601形式。不明ならnull）\n"
+            "- summary.points: 記事の核心を簡潔にまとめた箇条書き（1〜5項目）\n"
+            "- detail: 記事内容を構造化した詳細説明（markdown形式）\n"
             "\n"
             "メインURL（記事本体）: https://example.com/article"
         )
@@ -207,7 +217,17 @@ class TestBuildSummaryPrompt:
             supplementary_urls=["https://tool.example.com", "https://ref.example.com"],
         )
         expected = (
-            "以下のURLの内容をすべてWebFetchで取得してください。\n"
+            "以下のURLをWebFetchで取得し、次の項目を抽出してください。\n"
+            "\n"
+            "抽出項目:\n"
+            "- meta.title: 記事のタイトル\n"
+            "- meta.url: 記事のURL\n"
+            "- meta.author: 著者名（はてなID、Twitter/X ID、本名など。不明ならnull）\n"
+            "- meta.category_large: 大カテゴリー（例: データエンジニアリング。不明ならnull）\n"
+            "- meta.category_medium: 中カテゴリー（例: BigQuery。不明ならnull）\n"
+            "- meta.published_at: 投稿日時（ISO 8601形式。不明ならnull）\n"
+            "- summary.points: 記事の核心を簡潔にまとめた箇条書き（1〜5項目）\n"
+            "- detail: 記事内容を構造化した詳細説明（markdown形式）\n"
             "\n"
             "メインURL（記事本体）: https://example.com/article\n"
             "\n"
