@@ -79,6 +79,46 @@ def build_summary_prompt(url: str, supplementary_urls: list[str] | None = None) 
     return "\n".join(parts)
 
 
+def format_meta_block(meta: dict[str, Any]) -> str:
+    """メタ情報ブロックをフォーマットする
+
+    Args:
+        meta: メタ情報辞書（title, url, author, category_large, category_medium, published_at）
+
+    Returns:
+        フォーマットされたメタ情報文字列
+    """
+    lines = []
+    lines.append(f"*{meta['title']}*")
+    lines.append(f"URL: {meta['url']}")
+    lines.append(f"著者: {meta['author'] or '不明'}")
+
+    category_large = meta.get("category_large")
+    category_medium = meta.get("category_medium")
+    if category_large and category_medium:
+        lines.append(f"カテゴリー: {category_large} / {category_medium}")
+    elif category_large:
+        lines.append(f"カテゴリー: {category_large}")
+    else:
+        lines.append("カテゴリー: 不明")
+
+    lines.append(f"投稿日時: {meta['published_at'] or '不明'}")
+
+    return "\n".join(lines)
+
+
+def format_summary_block(summary: dict[str, Any]) -> str:
+    """簡潔な要約ブロックをフォーマットする
+
+    Args:
+        summary: 要約辞書（points: list[str]）
+
+    Returns:
+        フォーマットされた箇条書き文字列
+    """
+    return "\n".join(f"- {point}" for point in summary["points"])
+
+
 async def fetch_and_summarize(
     query_func: QueryFunc,
     url: str,
