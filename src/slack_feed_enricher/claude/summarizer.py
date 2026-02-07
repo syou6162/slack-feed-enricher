@@ -81,7 +81,6 @@ def build_summary_prompt(url: str, supplementary_urls: list[str] | None = None) 
             "引用元の詳細情報なので、要約に適宜取り込んでください。"
         )
 
-
     return "\n".join(parts)
 
 
