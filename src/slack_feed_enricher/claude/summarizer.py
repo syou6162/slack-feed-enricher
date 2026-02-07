@@ -22,10 +22,35 @@ OUTPUT_SCHEMA = {
     "schema": {
         "type": "object",
         "properties": {
-            "markdown": {"type": "string", "description": "Slackスレッドに投稿するmarkdown形式の整形済みテキスト"}
+            "meta": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "記事のタイトル"},
+                    "url": {"type": "string", "format": "uri", "description": "記事のURL"},
+                    "author": {"type": ["string", "null"], "description": "著者名（はてなID、Twitter/X ID、本名など。取得できない場合はnull）"},
+                    "category_large": {"type": ["string", "null"], "description": "大カテゴリー（例: データエンジニアリング。判定できない場合はnull）"},
+                    "category_medium": {"type": ["string", "null"], "description": "中カテゴリー（例: BigQuery。判定できない場合はnull）"},
+                    "published_at": {"type": ["string", "null"], "format": "date-time", "description": "記事の投稿日時（ISO 8601形式。取得できない場合はnull）"},
+                },
+                "required": ["title", "url", "author", "category_large", "category_medium", "published_at"],
+            },
+            "summary": {
+                "type": "object",
+                "properties": {
+                    "points": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "maxItems": 5,
+                        "description": "記事の核心を簡潔にまとめた箇条書き（最大5項目）",
+                    }
+                },
+                "required": ["points"],
+            },
+            "detail": {"type": "string", "description": "記事内容を構造化した詳細説明（markdown形式）"},
         },
-        "required": ["markdown"]
-    }
+        "required": ["meta", "summary", "detail"],
+    },
 }
 
 
@@ -122,15 +147,17 @@ def format_summary_block(summary: dict[str, Any]) -> str:
 async def fetch_and_summarize(
     query_func: QueryFunc,
     url: str,
-) -> str:
-    """URLの内容をWebFetchで取得し、markdown形式で要約する
+    supplementary_urls: list[str] | None = None,
+) -> list[str]:
+    """URLの内容をWebFetchで取得し、3ブロック構造で要約する
 
     Args:
         query_func: claude_agent_sdk.query関数（またはモック）
         url: 要約対象のURL
+        supplementary_urls: 補足URL（引用先、ツール説明等）
 
     Returns:
-        markdown形式の要約テキスト
+        3つのブロック文字列のリスト [メタ情報, 簡潔な要約, 詳細]
 
     Raises:
         ValueError: URLが空の場合
@@ -142,13 +169,7 @@ async def fetch_and_summarize(
         raise ValueError("URLが空です")
 
     # プロンプト構築
-    prompt = f"""{url} の内容をWebFetchで取得し、要約してください。
-
-要約はmarkdown形式で、以下を含めてください:
-- 記事のタイトル
-- 主要なポイント（箇条書き）
-- 一言まとめ
-"""
+    prompt = build_summary_prompt(url, supplementary_urls)
 
     # ClaudeAgentOptions作成
     options = ClaudeAgentOptions(
@@ -173,4 +194,14 @@ async def fetch_and_summarize(
     if result_message.structured_output is None:
         raise StructuredOutputError("構造化出力が取得できませんでした")
 
-    return result_message.structured_output["markdown"]
+    so = result_message.structured_output
+
+    # キー欠損チェック
+    required_keys = ["meta", "summary", "detail"]
+    missing_keys = [key for key in required_keys if key not in so]
+    if missing_keys:
+        raise StructuredOutputError(
+            f"構造化出力に必要なキーが欠損しています: {', '.join(missing_keys)}"
+        )
+
+    return [format_meta_block(so["meta"]), format_summary_block(so["summary"]), so["detail"]]

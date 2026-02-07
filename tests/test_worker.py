@@ -12,47 +12,87 @@ from slack_feed_enricher.slack import SlackMessage
 from slack_feed_enricher.slack.exceptions import SlackAPIError
 from slack_feed_enricher.worker import QueryFunc, enrich_and_reply_pending_messages, run, send_enriched_messages
 
+# テスト用の3ブロック構造化出力を生成するヘルパー
+SAMPLE_STRUCTURED_OUTPUT = {
+    "meta": {
+        "title": "テスト記事",
+        "url": "https://example.com",
+        "author": "test_author",
+        "category_large": "テスト",
+        "category_medium": "サブカテゴリ",
+        "published_at": "2025-01-15T10:30:00Z",
+    },
+    "summary": {"points": ["ポイント1"]},
+    "detail": "# 詳細\n記事の詳細内容",
+}
+
+
+def create_mock_query_func() -> QueryFunc:
+    """3ブロック構造のResultMessageを返すモックquery関数"""
+
+    async def mock_query(*args: object, **kwargs: object) -> AsyncIterator[ResultMessage]:
+        yield ResultMessage(
+            is_error=False,
+            result="success",
+            structured_output=SAMPLE_STRUCTURED_OUTPUT,
+            subtype="normal",
+            duration_ms=1000,
+            duration_api_ms=800,
+            num_turns=1,
+            session_id="test-session",
+        )
+
+    return mock_query
+
 
 @pytest.mark.asyncio
-async def test_send_enriched_messages_posts_to_slack() -> None:
-    """要約テキストがSlackスレッドに投稿されること"""
+async def test_send_enriched_messages_posts_multiple_blocks_to_slack() -> None:
+    """複数ブロックがSlackスレッドに順次投稿されること"""
 
     mock_slack_client = AsyncMock()
-    mock_slack_client.post_thread_reply.return_value = "1234567890.123456"
+    mock_slack_client.post_thread_reply.side_effect = [
+        "ts_meta",
+        "ts_summary",
+        "ts_detail",
+    ]
 
     result = await send_enriched_messages(
         slack_client=mock_slack_client,
         channel_id="C0123456789",
         thread_ts="1234567890.000000",
-        text="# テスト要約\n\nこれはテストです。",
+        texts=["メタ情報テキスト", "要約テキスト", "詳細テキスト"],
     )
 
-    assert result == ["1234567890.123456"]
-    mock_slack_client.post_thread_reply.assert_called_once_with(
+    assert result == ["ts_meta", "ts_summary", "ts_detail"]
+    assert mock_slack_client.post_thread_reply.call_count == 3
+    # 投稿順序の検証
+    calls = mock_slack_client.post_thread_reply.call_args_list
+    assert calls[0].kwargs["text"] == "メタ情報テキスト"
+    assert calls[1].kwargs["text"] == "要約テキスト"
+    assert calls[2].kwargs["text"] == "詳細テキスト"
+
+
+@pytest.mark.asyncio
+async def test_send_enriched_messages_single_block() -> None:
+    """1ブロックのみの場合も正しく動作すること"""
+
+    mock_slack_client = AsyncMock()
+    mock_slack_client.post_thread_reply.return_value = "ts_single"
+
+    result = await send_enriched_messages(
+        slack_client=mock_slack_client,
         channel_id="C0123456789",
         thread_ts="1234567890.000000",
-        text="# テスト要約\n\nこれはテストです。",
+        texts=["単一テキスト"],
     )
+
+    assert result == ["ts_single"]
+    mock_slack_client.post_thread_reply.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_enrich_and_reply_pending_messages_processes_all() -> None:
     """未返信メッセージ全件が処理されること"""
-
-    def create_mock_query_func(markdown: str) -> QueryFunc:
-        async def mock_query(*args: object, **kwargs: object) -> AsyncIterator[ResultMessage]:
-            yield ResultMessage(
-                is_error=False,
-                result="success",
-                structured_output={"markdown": markdown},
-                subtype="normal",
-                duration_ms=1000,
-                duration_api_ms=800,
-                num_turns=1,
-                session_id="test-session",
-            )
-
-        return mock_query
 
     mock_slack_client = AsyncMock()
     mock_slack_client.fetch_unreplied_messages.return_value = [
@@ -62,7 +102,7 @@ async def test_enrich_and_reply_pending_messages_processes_all() -> None:
     ]
     mock_slack_client.post_thread_reply.return_value = "reply_ts"
 
-    mock_query_func = create_mock_query_func("# 要約")
+    mock_query_func = create_mock_query_func()
 
     result = await enrich_and_reply_pending_messages(
         slack_client=mock_slack_client,
@@ -83,35 +123,25 @@ async def test_enrich_and_reply_pending_messages_processes_all() -> None:
 async def test_enrich_and_reply_pending_messages_continues_on_error() -> None:
     """1件のエラーで全体が止まらないことをテスト"""
 
-    def create_mock_query_func(markdown: str) -> QueryFunc:
-        async def mock_query(*args: object, **kwargs: object) -> AsyncIterator[ResultMessage]:
-            yield ResultMessage(
-                is_error=False,
-                result="success",
-                structured_output={"markdown": markdown},
-                subtype="normal",
-                duration_ms=1000,
-                duration_api_ms=800,
-                num_turns=1,
-                session_id="test-session",
-            )
-
-        return mock_query
-
     mock_slack_client = AsyncMock()
     mock_slack_client.fetch_unreplied_messages.return_value = [
         SlackMessage(ts="1", text="<https://example1.com>", reply_count=0),
         SlackMessage(ts="2", text="<https://example2.com>", reply_count=0),
         SlackMessage(ts="3", text="<https://example3.com>", reply_count=0),
     ]
-    # 2件目だけエラー
+    # 各メッセージは3ブロック投稿なので、side_effectも3倍必要
+    # 1件目: 3ブロック成功, 2件目: 1ブロック目でエラー, 3件目: 3ブロック成功
     mock_slack_client.post_thread_reply.side_effect = [
-        "reply_ts_1",
+        "reply_ts_1a",
+        "reply_ts_1b",
+        "reply_ts_1c",
         SlackAPIError("エラー", "rate_limited"),
-        "reply_ts_3",
+        "reply_ts_3a",
+        "reply_ts_3b",
+        "reply_ts_3c",
     ]
 
-    mock_query_func = create_mock_query_func("# 要約")
+    mock_query_func = create_mock_query_func()
 
     result = await enrich_and_reply_pending_messages(
         slack_client=mock_slack_client,
@@ -129,25 +159,10 @@ async def test_enrich_and_reply_pending_messages_continues_on_error() -> None:
 async def test_run_calls_enrich_and_reply_pending_messages() -> None:
     """ポーリングループがenrich_and_reply_pending_messagesを呼び出すことをテスト"""
 
-    def create_mock_query_func(markdown: str) -> QueryFunc:
-        async def mock_query(*args: object, **kwargs: object) -> AsyncIterator[ResultMessage]:
-            yield ResultMessage(
-                is_error=False,
-                result="success",
-                structured_output={"markdown": markdown},
-                subtype="normal",
-                duration_ms=1000,
-                duration_api_ms=800,
-                num_turns=1,
-                session_id="test-session",
-            )
-
-        return mock_query
-
     mock_slack_client = AsyncMock()
     mock_slack_client.fetch_unreplied_messages.return_value = []
 
-    mock_query_func = create_mock_query_func("# 要約")
+    mock_query_func = create_mock_query_func()
 
     # 1回の呼び出し後にCancelledErrorを投げてループを止める
     task = asyncio.create_task(
@@ -175,22 +190,19 @@ async def test_run_calls_enrich_and_reply_pending_messages() -> None:
 async def test_enrich_and_reply_pending_messages_timeout() -> None:
     """処理がtimeout秒を超えた場合に中断して結果を返すことをテスト"""
 
-    def create_slow_query_func() -> QueryFunc:
-        async def mock_query(*args: object, **kwargs: object) -> AsyncIterator[ResultMessage]:
-            # 各クエリに2秒かかる
-            await asyncio.sleep(2)
-            yield ResultMessage(
-                is_error=False,
-                result="success",
-                structured_output={"markdown": "# 要約"},
-                subtype="normal",
-                duration_ms=2000,
-                duration_api_ms=1800,
-                num_turns=1,
-                session_id="test-session",
-            )
-
-        return mock_query
+    async def slow_mock_query(*args: object, **kwargs: object) -> AsyncIterator[ResultMessage]:
+        # 各クエリに2秒かかる
+        await asyncio.sleep(2)
+        yield ResultMessage(
+            is_error=False,
+            result="success",
+            structured_output=SAMPLE_STRUCTURED_OUTPUT,
+            subtype="normal",
+            duration_ms=2000,
+            duration_api_ms=1800,
+            num_turns=1,
+            session_id="test-session",
+        )
 
     mock_slack_client = AsyncMock()
     # 5件のメッセージがあるが、タイムアウトで全部処理できない
@@ -203,12 +215,10 @@ async def test_enrich_and_reply_pending_messages_timeout() -> None:
     ]
     mock_slack_client.post_thread_reply.return_value = "reply_ts"
 
-    mock_query_func = create_slow_query_func()
-
     # 1秒でタイムアウト（1件目は処理できるが、2件目の前にタイムアウト）
     result = await enrich_and_reply_pending_messages(
         slack_client=mock_slack_client,
-        query_func=mock_query_func,
+        query_func=slow_mock_query,
         channel_id="C0123456789",
         message_limit=100,
         timeout=1,

@@ -30,11 +30,22 @@ class TestFetchAndSummarize:
             await fetch_and_summarize(mock_query, "")
 
     @pytest.mark.asyncio
-    async def test_returns_markdown_for_single_url(self) -> None:
-        """単一URLで要約markdownが返ること"""
+    async def test_returns_three_blocks_for_single_url(self) -> None:
+        """単一URLで3ブロックのリストが返ること"""
         mock_result = AsyncMock(spec=ResultMessage)
         mock_result.is_error = False
-        mock_result.structured_output = {"markdown": "# タイトル\n- ポイント1"}
+        mock_result.structured_output = {
+            "meta": {
+                "title": "テスト記事",
+                "url": "https://example.com",
+                "author": "test_author",
+                "category_large": "テスト",
+                "category_medium": "サブカテゴリ",
+                "published_at": "2025-01-15T10:30:00Z",
+            },
+            "summary": {"points": ["ポイント1", "ポイント2"]},
+            "detail": "# 詳細\n記事の詳細内容",
+        }
 
         async def mock_query(**kwargs: object) -> AsyncIterator[object]:  # noqa: ARG001
             """モックquery関数"""
@@ -42,7 +53,69 @@ class TestFetchAndSummarize:
 
         result = await fetch_and_summarize(mock_query, "https://example.com")
 
-        assert result == "# タイトル\n- ポイント1"
+        assert isinstance(result, list)
+        assert len(result) == 3
+        # メタ情報ブロック
+        assert "テスト記事" in result[0]
+        assert "https://example.com" in result[0]
+        # 要約ブロック
+        assert "ポイント1" in result[1]
+        assert "ポイント2" in result[1]
+        # 詳細ブロック
+        assert result[2] == "# 詳細\n記事の詳細内容"
+
+    @pytest.mark.asyncio
+    async def test_returns_three_blocks_with_supplementary_urls(self) -> None:
+        """補足URL付きで3ブロックのリストが返ること"""
+        mock_result = AsyncMock(spec=ResultMessage)
+        mock_result.is_error = False
+        mock_result.structured_output = {
+            "meta": {
+                "title": "テスト記事",
+                "url": "https://example.com",
+                "author": "test_author",
+                "category_large": "テスト",
+                "category_medium": "サブカテゴリ",
+                "published_at": "2025-01-15T10:30:00Z",
+            },
+            "summary": {"points": ["ポイント1"]},
+            "detail": "# 詳細\n記事の詳細内容",
+        }
+
+        received_prompts: list[str] = []
+
+        async def mock_query(**kwargs: object) -> AsyncIterator[object]:
+            """モックquery関数（プロンプトを記録）"""
+            received_prompts.append(str(kwargs.get("prompt", "")))
+            yield mock_result
+
+        result = await fetch_and_summarize(
+            mock_query,
+            "https://example.com",
+            supplementary_urls=["https://tool.example.com", "https://ref.example.com"],
+        )
+
+        assert isinstance(result, list)
+        assert len(result) == 3
+        # プロンプトに補足URLが含まれていること
+        assert len(received_prompts) == 1
+        assert "https://tool.example.com" in received_prompts[0]
+        assert "https://ref.example.com" in received_prompts[0]
+        assert "補足URL" in received_prompts[0]
+
+    @pytest.mark.asyncio
+    async def test_raises_structured_output_error_when_keys_missing(self) -> None:
+        """structured_outputに必要なキーが欠損している場合にStructuredOutputErrorが発生すること"""
+        mock_result = AsyncMock(spec=ResultMessage)
+        mock_result.is_error = False
+        mock_result.structured_output = {"meta": {"title": "テスト"}}
+
+        async def mock_query(**kwargs: object) -> AsyncIterator[object]:  # noqa: ARG001
+            """モックquery関数"""
+            yield mock_result
+
+        with pytest.raises(StructuredOutputError, match="構造化出力に必要なキーが欠損しています"):
+            await fetch_and_summarize(mock_query, "https://example.com")
 
     @pytest.mark.asyncio
     async def test_raises_claude_api_error_on_sdk_error(self) -> None:
