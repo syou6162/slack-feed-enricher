@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from slack_feed_enricher.slack.blocks import SlackBlock, SlackSectionBlock, SlackTextObject
 from slack_feed_enricher.slack.client import SlackClient, SlackMessage
 from slack_feed_enricher.slack.exceptions import SlackAPIError
 
@@ -252,3 +253,49 @@ async def test_post_thread_reply_with_markdown() -> None:
 
     call_args = mock_client.chat_postMessage.call_args
     assert call_args.kwargs["text"] == markdown_text
+
+
+@pytest.mark.asyncio
+async def test_post_thread_reply_with_blocks() -> None:
+    """blocksパラメータが指定された場合、chat_postMessageにblocksが渡されること"""
+    mock_client = AsyncMock()
+    mock_client.chat_postMessage.return_value = {
+        "ok": True,
+        "ts": "1234567892.123456",
+    }
+
+    blocks: list[SlackBlock] = [
+        SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text="*テスト*")),
+    ]
+
+    client = SlackClient(mock_client)
+    await client.post_thread_reply(
+        channel_id="C0123456789",
+        thread_ts="1234567890.123456",
+        text="フォールバックテキスト",
+        blocks=blocks,
+    )
+
+    call_args = mock_client.chat_postMessage.call_args
+    assert call_args.kwargs["blocks"] == [{"type": "section", "text": {"type": "mrkdwn", "text": "*テスト*"}}]
+    assert call_args.kwargs["text"] == "フォールバックテキスト"
+
+
+@pytest.mark.asyncio
+async def test_post_thread_reply_without_blocks() -> None:
+    """blocksパラメータが省略された場合、chat_postMessageにblocksが渡されないこと"""
+    mock_client = AsyncMock()
+    mock_client.chat_postMessage.return_value = {
+        "ok": True,
+        "ts": "1234567892.123456",
+    }
+
+    client = SlackClient(mock_client)
+    await client.post_thread_reply(
+        channel_id="C0123456789",
+        thread_ts="1234567890.123456",
+        text="テキストのみ",
+    )
+
+    call_args = mock_client.chat_postMessage.call_args
+    assert "blocks" not in call_args.kwargs

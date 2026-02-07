@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from slack_sdk.web.async_client import AsyncWebClient
 
+from slack_feed_enricher.slack.blocks import SlackBlock
 from slack_feed_enricher.slack.exceptions import SlackAPIError
 
 
@@ -69,13 +70,20 @@ class SlackClient:
         # reply_countが0のメッセージのみをフィルタリング
         return [msg for msg in all_messages if msg.reply_count == 0]
 
-    async def post_thread_reply(self, channel_id: str, thread_ts: str, text: str) -> str:
+    async def post_thread_reply(
+        self,
+        channel_id: str,
+        thread_ts: str,
+        text: str,
+        blocks: list[SlackBlock] | None = None,
+    ) -> str:
         """スレッドに返信を投稿する
 
         Args:
             channel_id: 投稿先のチャンネルID
             thread_ts: 返信先の親メッセージのタイムスタンプ
             text: 投稿するメッセージ本文（Markdown形式）
+            blocks: Slack Block Kit形式のブロック配列（省略時はtextのみで投稿）
 
         Returns:
             str: 投稿されたメッセージのタイムスタンプ（ts）
@@ -83,11 +91,19 @@ class SlackClient:
         Raises:
             SlackAPIError: Slack API呼び出しでエラーが発生した場合
         """
-        response = await self._client.chat_postMessage(
-            channel=channel_id,
-            thread_ts=thread_ts,
-            text=text,
-        )
+        if blocks is not None:
+            response = await self._client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                text=text,
+                blocks=[b.model_dump(exclude_none=True) for b in blocks],
+            )
+        else:
+            response = await self._client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                text=text,
+            )
 
         if not response.get("ok"):
             error_code = response.get("error", "unknown_error")

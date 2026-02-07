@@ -5,52 +5,62 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from slack_feed_enricher.claude.exceptions import (
     ClaudeAPIError,
     NoResultMessageError,
     StructuredOutputError,
 )
+from slack_feed_enricher.slack.blocks import (
+    SlackBlock,
+    SlackHeaderBlock,
+    SlackRichTextBlock,
+    SlackRichTextList,
+    SlackRichTextSection,
+    SlackSectionBlock,
+    SlackTextElement,
+    SlackTextObject,
+)
 
 logger = logging.getLogger(__name__)
 
 QueryFunc = Callable[..., AsyncIterator[Any]]
 
+
+class Meta(BaseModel):
+    model_config = ConfigDict(json_schema_extra=None)
+    title: str
+    url: str
+    author: str | None
+    category_large: str | None
+    category_medium: str | None
+    published_at: str | None
+
+
+class Summary(BaseModel):
+    points: list[str] = Field(min_length=1, max_length=5)
+
+
+class StructuredOutput(BaseModel):
+    meta: Meta
+    summary: Summary
+    detail: str
+
+
+class EnrichResult(BaseModel, frozen=True):
+    meta_blocks: list[SlackBlock]
+    meta_text: str
+    summary_blocks: list[SlackBlock]
+    summary_text: str
+    detail_blocks: list[SlackBlock]
+    detail_text: str
+
+
 # 構造化出力スキーマ
 OUTPUT_SCHEMA = {
     "type": "json_schema",
-    "schema": {
-        "type": "object",
-        "properties": {
-            "meta": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string", "description": "記事のタイトル"},
-                    "url": {"type": "string", "description": "記事のURL"},
-                    "author": {"type": ["string", "null"], "description": "著者名（はてなID、Twitter/X ID、本名など。取得できない場合はnull）"},
-                    "category_large": {"type": ["string", "null"], "description": "大カテゴリー（例: データエンジニアリング。判定できない場合はnull）"},
-                    "category_medium": {"type": ["string", "null"], "description": "中カテゴリー（例: BigQuery。判定できない場合はnull）"},
-                    "published_at": {"type": ["string", "null"], "description": "記事の投稿日時（ISO 8601形式。取得できない場合はnull）"},
-                },
-                "required": ["title", "url", "author", "category_large", "category_medium", "published_at"],
-            },
-            "summary": {
-                "type": "object",
-                "properties": {
-                    "points": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "minItems": 1,
-                        "maxItems": 5,
-                        "description": "記事の核心を簡潔にまとめた箇条書き（最大5項目）",
-                    }
-                },
-                "required": ["points"],
-            },
-            "detail": {"type": "string", "description": "記事内容を構造化した詳細説明（markdown形式）"},
-        },
-        "required": ["meta", "summary", "detail"],
-    },
+    "schema": StructuredOutput.model_json_schema(),
 }
 
 
@@ -92,6 +102,106 @@ def build_summary_prompt(url: str, supplementary_urls: list[str] | None = None) 
         )
 
     return "\n".join(parts)
+
+
+def build_meta_blocks(meta: Meta) -> list[SlackBlock]:
+    """MetaモデルからSlack Block Kitブロック配列を生成する
+
+    titleをSlackHeaderBlockで表示（summary/detailと統一）し、
+    メタデータ属性はfieldsで2列表示する。URLは必須フィールドとして常に含む。
+
+    Args:
+        meta: Metaモデルインスタンス
+
+    Returns:
+        SlackBlockのリスト（headerブロック + fields section）
+    """
+    # Slackのheaderブロックは最大150文字
+    truncated_title = meta.title[:150] if len(meta.title) > 150 else meta.title
+    header_block = SlackHeaderBlock(text=SlackTextObject(type="plain_text", text=truncated_title))
+
+    fields: list[SlackTextObject] = [
+        SlackTextObject(type="mrkdwn", text="*URL*"),
+        SlackTextObject(type="mrkdwn", text=f"<{meta.url}>"),
+    ]
+    if meta.author:
+        fields.extend([
+            SlackTextObject(type="mrkdwn", text="*Author*"),
+            SlackTextObject(type="plain_text", text=meta.author),
+        ])
+    if meta.category_large and meta.category_medium:
+        fields.extend([
+            SlackTextObject(type="mrkdwn", text="*Category*"),
+            SlackTextObject(type="plain_text", text=f"{meta.category_large} / {meta.category_medium}"),
+        ])
+    elif meta.category_large:
+        fields.extend([
+            SlackTextObject(type="mrkdwn", text="*Category*"),
+            SlackTextObject(type="plain_text", text=meta.category_large),
+        ])
+    elif meta.category_medium:
+        fields.extend([
+            SlackTextObject(type="mrkdwn", text="*Category*"),
+            SlackTextObject(type="plain_text", text=meta.category_medium),
+        ])
+    if meta.published_at:
+        fields.extend([
+            SlackTextObject(type="mrkdwn", text="*Published*"),
+            SlackTextObject(type="plain_text", text=meta.published_at),
+        ])
+
+    metadata_section = SlackSectionBlock(fields=fields)
+    return [header_block, metadata_section]
+
+
+def build_summary_blocks(summary: Summary) -> list[SlackBlock]:
+    """SummaryモデルからSlack Block Kitブロック配列を生成する
+
+    SlackHeaderBlockで「Summary」タイトルを表示し、rich_text_listでネイティブ箇条書きを表示する。
+
+    Args:
+        summary: Summaryモデルインスタンス
+
+    Returns:
+        SlackBlockのリスト（headerブロック + rich_textブロック）
+    """
+    header_block = SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Summary"))
+    list_items = [
+        SlackRichTextSection(elements=[SlackTextElement(text=point)])
+        for point in summary.points
+    ]
+    rich_text_block = SlackRichTextBlock(
+        elements=[SlackRichTextList(style="bullet", elements=list_items)]
+    )
+    return [header_block, rich_text_block]
+
+
+def build_detail_blocks(detail: str) -> list[SlackBlock]:
+    """detail文字列からSlack Block Kitブロック配列を生成する
+
+    SlackHeaderBlockで「Details」タイトルを表示し、detailテキストをsectionブロックで表示する。
+    3000文字を超える場合は複数sectionに分割する。
+
+    Args:
+        detail: 詳細テキスト（markdown形式）
+
+    Returns:
+        SlackBlockのリスト（headerブロック + 1つ以上のsectionブロック）
+    """
+    header_block = SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Details"))
+
+    # Slackのsectionブロックtextは最大3000文字
+    max_section_text_length = 3000
+
+    if len(detail) <= max_section_text_length:
+        return [header_block, SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=detail))]
+
+    sections: list[SlackBlock] = [header_block]
+    for i in range(0, len(detail), max_section_text_length):
+        chunk = detail[i:i + max_section_text_length]
+        sections.append(SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=chunk)))
+
+    return sections
 
 
 def format_meta_block(meta: dict[str, Any]) -> str:
@@ -140,8 +250,8 @@ async def fetch_and_summarize(
     query_func: QueryFunc,
     url: str,
     supplementary_urls: list[str] | None = None,
-) -> list[str]:
-    """URLの内容をWebFetchで取得し、3ブロック構造で要約する
+) -> EnrichResult:
+    """URLの内容をWebFetchで取得し、構造化された要約結果を返す
 
     Args:
         query_func: claude_agent_sdk.query関数（またはモック）
@@ -149,7 +259,7 @@ async def fetch_and_summarize(
         supplementary_urls: 補足URL（引用先、ツール説明等）
 
     Returns:
-        3つのブロック文字列のリスト [メタ情報, 簡潔な要約, 詳細]
+        EnrichResult: Block Kit形式のブロックとフォールバックテキストを含む結果
 
     Raises:
         ValueError: URLが空の場合
@@ -191,12 +301,20 @@ async def fetch_and_summarize(
 
     so = result_message.structured_output
 
-    # キー欠損チェック
-    required_keys = ["meta", "summary", "detail"]
-    missing_keys = [key for key in required_keys if key not in so]
-    if missing_keys:
-        raise StructuredOutputError(
-            f"構造化出力に必要なキーが欠損しています: {', '.join(missing_keys)}"
-        )
+    # dict→Pydanticモデル変換（ValidationErrorはStructuredOutputErrorに変換）
+    try:
+        parsed = StructuredOutput.model_validate(so)
+    except ValidationError as e:
+        raise StructuredOutputError(f"構造化出力のバリデーションに失敗しました: {e}") from e
 
-    return [format_meta_block(so["meta"]), format_summary_block(so["summary"]), so["detail"]]
+    meta_text = format_meta_block(parsed.meta.model_dump())
+    summary_text = format_summary_block(parsed.summary.model_dump())
+
+    return EnrichResult(
+        meta_blocks=build_meta_blocks(parsed.meta),
+        meta_text=meta_text,
+        summary_blocks=build_summary_blocks(parsed.summary),
+        summary_text=summary_text,
+        detail_blocks=build_detail_blocks(parsed.detail),
+        detail_text=parsed.detail,
+    )

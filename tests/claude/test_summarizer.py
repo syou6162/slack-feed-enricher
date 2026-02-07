@@ -8,11 +8,80 @@ from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
 
 from slack_feed_enricher.claude.exceptions import ClaudeAPIError, StructuredOutputError
 from slack_feed_enricher.claude.summarizer import (
+    EnrichResult,
+    Meta,
+    StructuredOutput,
+    Summary,
+    build_detail_blocks,
+    build_meta_blocks,
+    build_summary_blocks,
     build_summary_prompt,
     fetch_and_summarize,
     format_meta_block,
     format_summary_block,
 )
+from slack_feed_enricher.slack.blocks import (
+    SlackHeaderBlock,
+    SlackRichTextBlock,
+    SlackRichTextList,
+    SlackRichTextSection,
+    SlackSectionBlock,
+    SlackTextElement,
+    SlackTextObject,
+)
+
+
+class TestStructuredOutputSchema:
+    """StructuredOutput Pydanticモデルのスキーマテスト"""
+
+    def test_schema_has_required_top_level_keys(self) -> None:
+        """model_json_schema()のトップレベルキーとrequiredが完全一致すること"""
+        schema = StructuredOutput.model_json_schema()
+        assert set(schema.keys()) == {"$defs", "properties", "required", "title", "type"}
+        assert set(schema["required"]) == {"meta", "summary", "detail"}
+
+    def test_schema_has_properties(self) -> None:
+        """model_json_schema()のpropertiesがmeta, summary, detailに完全一致すること"""
+        schema = StructuredOutput.model_json_schema()
+        assert set(schema["properties"].keys()) == {"meta", "summary", "detail"}
+
+    def test_meta_model_fields(self) -> None:
+        """Metaモデルに必要なフィールドがすべて定義されていること"""
+        meta = Meta(
+            title="テスト",
+            url="https://example.com",
+            author=None,
+            category_large=None,
+            category_medium=None,
+            published_at=None,
+        )
+        assert meta.title == "テスト"
+        assert meta.url == "https://example.com"
+        assert meta.author is None
+
+    def test_summary_model_fields(self) -> None:
+        """Summaryモデルにpointsフィールドが定義されていること"""
+        summary = Summary(points=["ポイント1", "ポイント2"])
+        assert summary.points == ["ポイント1", "ポイント2"]
+
+    def test_structured_output_model_validate(self) -> None:
+        """dictからStructuredOutputにmodel_validateできること"""
+        data = {
+            "meta": {
+                "title": "テスト記事",
+                "url": "https://example.com",
+                "author": "test_author",
+                "category_large": "テスト",
+                "category_medium": "サブカテゴリ",
+                "published_at": "2025-01-15T10:30:00Z",
+            },
+            "summary": {"points": ["ポイント1"]},
+            "detail": "詳細内容",
+        }
+        result = StructuredOutput.model_validate(data)
+        assert result.meta.title == "テスト記事"
+        assert result.summary.points == ["ポイント1"]
+        assert result.detail == "詳細内容"
 
 
 class TestFetchAndSummarize:
@@ -30,8 +99,8 @@ class TestFetchAndSummarize:
             await fetch_and_summarize(mock_query, "")
 
     @pytest.mark.asyncio
-    async def test_returns_three_blocks_for_single_url(self) -> None:
-        """単一URLで3ブロックのリストが返ること"""
+    async def test_returns_enrich_result_for_single_url(self) -> None:
+        """単一URLでEnrichResultが返ること"""
         mock_result = AsyncMock(spec=ResultMessage)
         mock_result.is_error = False
         mock_result.structured_output = {
@@ -53,15 +122,45 @@ class TestFetchAndSummarize:
 
         result = await fetch_and_summarize(mock_query, "https://example.com")
 
-        assert result == [
-            "*テスト記事*\nURL: https://example.com\n著者: test_author\nカテゴリー: テスト / サブカテゴリ\n投稿日時: 2025-01-15T10:30:00Z",
-            "- ポイント1\n- ポイント2",
-            "# 詳細\n記事の詳細内容",
-        ]
+        expected = EnrichResult(
+            meta_text=(
+                "*テスト記事*\nURL: https://example.com\n著者: test_author\n"
+                "カテゴリー: テスト / サブカテゴリ\n投稿日時: 2025-01-15T10:30:00Z"
+            ),
+            meta_blocks=[
+                SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="テスト記事")),
+                SlackSectionBlock(fields=[
+                    SlackTextObject(type="mrkdwn", text="*URL*"),
+                    SlackTextObject(type="mrkdwn", text="<https://example.com>"),
+                    SlackTextObject(type="mrkdwn", text="*Author*"),
+                    SlackTextObject(type="plain_text", text="test_author"),
+                    SlackTextObject(type="mrkdwn", text="*Category*"),
+                    SlackTextObject(type="plain_text", text="テスト / サブカテゴリ"),
+                    SlackTextObject(type="mrkdwn", text="*Published*"),
+                    SlackTextObject(type="plain_text", text="2025-01-15T10:30:00Z"),
+                ]),
+            ],
+            summary_text="- ポイント1\n- ポイント2",
+            summary_blocks=[
+                SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Summary")),
+                SlackRichTextBlock(elements=[
+                    SlackRichTextList(style="bullet", elements=[
+                        SlackRichTextSection(elements=[SlackTextElement(text="ポイント1")]),
+                        SlackRichTextSection(elements=[SlackTextElement(text="ポイント2")]),
+                    ]),
+                ]),
+            ],
+            detail_text="# 詳細\n記事の詳細内容",
+            detail_blocks=[
+                SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Details")),
+                SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text="# 詳細\n記事の詳細内容")),
+            ],
+        )
+        assert result == expected
 
     @pytest.mark.asyncio
-    async def test_returns_three_blocks_with_supplementary_urls(self) -> None:
-        """補足URL付きで3ブロックのリストが返ること"""
+    async def test_returns_enrich_result_with_supplementary_urls(self) -> None:
+        """補足URL付きでEnrichResultが返ること"""
         mock_result = AsyncMock(spec=ResultMessage)
         mock_result.is_error = False
         mock_result.structured_output = {
@@ -90,11 +189,40 @@ class TestFetchAndSummarize:
             supplementary_urls=["https://tool.example.com", "https://ref.example.com"],
         )
 
-        assert result == [
-            "*テスト記事*\nURL: https://example.com\n著者: test_author\nカテゴリー: テスト / サブカテゴリ\n投稿日時: 2025-01-15T10:30:00Z",
-            "- ポイント1",
-            "# 詳細\n記事の詳細内容",
-        ]
+        expected = EnrichResult(
+            meta_text=(
+                "*テスト記事*\nURL: https://example.com\n著者: test_author\n"
+                "カテゴリー: テスト / サブカテゴリ\n投稿日時: 2025-01-15T10:30:00Z"
+            ),
+            meta_blocks=[
+                SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="テスト記事")),
+                SlackSectionBlock(fields=[
+                    SlackTextObject(type="mrkdwn", text="*URL*"),
+                    SlackTextObject(type="mrkdwn", text="<https://example.com>"),
+                    SlackTextObject(type="mrkdwn", text="*Author*"),
+                    SlackTextObject(type="plain_text", text="test_author"),
+                    SlackTextObject(type="mrkdwn", text="*Category*"),
+                    SlackTextObject(type="plain_text", text="テスト / サブカテゴリ"),
+                    SlackTextObject(type="mrkdwn", text="*Published*"),
+                    SlackTextObject(type="plain_text", text="2025-01-15T10:30:00Z"),
+                ]),
+            ],
+            summary_text="- ポイント1",
+            summary_blocks=[
+                SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Summary")),
+                SlackRichTextBlock(elements=[
+                    SlackRichTextList(style="bullet", elements=[
+                        SlackRichTextSection(elements=[SlackTextElement(text="ポイント1")]),
+                    ]),
+                ]),
+            ],
+            detail_text="# 詳細\n記事の詳細内容",
+            detail_blocks=[
+                SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Details")),
+                SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text="# 詳細\n記事の詳細内容")),
+            ],
+        )
+        assert result == expected
         # プロンプトが補足URL付きで構築されていること
         assert len(received_prompts) == 1
         expected_prompt = build_summary_prompt(
@@ -146,7 +274,7 @@ class TestFetchAndSummarize:
             """モックquery関数"""
             yield mock_result
 
-        with pytest.raises(StructuredOutputError, match="構造化出力に必要なキーが欠損しています"):
+        with pytest.raises(StructuredOutputError, match="構造化出力のバリデーションに失敗しました"):
             await fetch_and_summarize(mock_query, "https://example.com")
 
     @pytest.mark.asyncio
@@ -357,3 +485,266 @@ class TestFormatSummaryBlock:
         summary = {"points": ["唯一のポイント"]}
         result = format_summary_block(summary)
         assert result == "- 唯一のポイント"
+
+
+class TestBuildMetaBlocks:
+    """build_meta_blocks関数のテスト"""
+
+    def test_all_fields_present(self) -> None:
+        """全フィールドが揃ったMetaモデルからheaderブロック + fields sectionの2ブロックが生成されること"""
+        meta = Meta(
+            title="BigQueryの最適化テクニック",
+            url="https://example.com/article",
+            author="yamada_taro",
+            category_large="データエンジニアリング",
+            category_medium="BigQuery",
+            published_at="2025-01-15T10:30:00Z",
+        )
+        blocks = build_meta_blocks(meta)
+
+        assert len(blocks) == 2
+
+        # 1ブロック目: headerブロック（title）
+        header_block = blocks[0]
+        assert isinstance(header_block, SlackHeaderBlock)
+        assert header_block.text == SlackTextObject(type="plain_text", text="BigQueryの最適化テクニック")
+
+        # 2ブロック目: fields section（URL, author, category large/medium結合, published_at）
+        fields_block = blocks[1]
+        assert isinstance(fields_block, SlackSectionBlock)
+        assert fields_block.text is None
+        assert fields_block.fields is not None
+        assert len(fields_block.fields) == 8  # 4属性 × 2（ラベル+値）
+        assert fields_block.fields == [
+            SlackTextObject(type="mrkdwn", text="*URL*"),
+            SlackTextObject(type="mrkdwn", text="<https://example.com/article>"),
+            SlackTextObject(type="mrkdwn", text="*Author*"),
+            SlackTextObject(type="plain_text", text="yamada_taro"),
+            SlackTextObject(type="mrkdwn", text="*Category*"),
+            SlackTextObject(type="plain_text", text="データエンジニアリング / BigQuery"),
+            SlackTextObject(type="mrkdwn", text="*Published*"),
+            SlackTextObject(type="plain_text", text="2025-01-15T10:30:00Z"),
+        ]
+
+    def test_all_optional_fields_none(self) -> None:
+        """全Optionalフィールドがnullの場合、headerブロック + URLのみのfields sectionの2ブロックが生成されること"""
+        meta = Meta(
+            title="無名の記事",
+            url="https://example.com/anonymous",
+            author=None,
+            category_large=None,
+            category_medium=None,
+            published_at=None,
+        )
+        blocks = build_meta_blocks(meta)
+
+        assert len(blocks) == 2
+        assert isinstance(blocks[0], SlackHeaderBlock)
+        assert blocks[0].text == SlackTextObject(type="plain_text", text="無名の記事")
+        fields_block = blocks[1]
+        assert isinstance(fields_block, SlackSectionBlock)
+        assert fields_block.fields is not None
+        assert len(fields_block.fields) == 2  # URLのみ
+        assert fields_block.fields == [
+            SlackTextObject(type="mrkdwn", text="*URL*"),
+            SlackTextObject(type="mrkdwn", text="<https://example.com/anonymous>"),
+        ]
+
+    def test_partial_optional_fields(self) -> None:
+        """一部のOptionalフィールドのみがある場合、URL + 存在する項目のみがfieldsに含まれること"""
+        meta = Meta(
+            title="著者ありカテゴリなし",
+            url="https://example.com/partial",
+            author="taro",
+            category_large=None,
+            category_medium=None,
+            published_at="2025-01-15T10:30:00Z",
+        )
+        blocks = build_meta_blocks(meta)
+
+        assert len(blocks) == 2
+
+        fields_block = blocks[1]
+        assert fields_block.fields is not None
+        assert len(fields_block.fields) == 6  # 3属性（URL, author, published_at） × 2
+        assert fields_block.fields == [
+            SlackTextObject(type="mrkdwn", text="*URL*"),
+            SlackTextObject(type="mrkdwn", text="<https://example.com/partial>"),
+            SlackTextObject(type="mrkdwn", text="*Author*"),
+            SlackTextObject(type="plain_text", text="taro"),
+            SlackTextObject(type="mrkdwn", text="*Published*"),
+            SlackTextObject(type="plain_text", text="2025-01-15T10:30:00Z"),
+        ]
+
+    def test_category_large_and_medium(self) -> None:
+        """category_largeとcategory_mediumが両方ある場合、結合表示されること"""
+        meta = Meta(
+            title="テスト",
+            url="https://example.com",
+            author=None,
+            category_large="データエンジニアリング",
+            category_medium="BigQuery",
+            published_at=None,
+        )
+        blocks = build_meta_blocks(meta)
+        fields_block = blocks[1]
+        assert SlackTextObject(type="plain_text", text="データエンジニアリング / BigQuery") in fields_block.fields
+
+    def test_category_large_only(self) -> None:
+        """category_largeのみの場合、largeのみが表示されること"""
+        meta = Meta(
+            title="テスト",
+            url="https://example.com",
+            author=None,
+            category_large="データエンジニアリング",
+            category_medium=None,
+            published_at=None,
+        )
+        blocks = build_meta_blocks(meta)
+        fields_block = blocks[1]
+        assert SlackTextObject(type="plain_text", text="データエンジニアリング") in fields_block.fields
+
+    def test_category_medium_only(self) -> None:
+        """category_mediumのみの場合、mediumのみが表示されること"""
+        meta = Meta(
+            title="テスト",
+            url="https://example.com",
+            author=None,
+            category_large=None,
+            category_medium="BigQuery",
+            published_at=None,
+        )
+        blocks = build_meta_blocks(meta)
+        fields_block = blocks[1]
+        assert SlackTextObject(type="plain_text", text="BigQuery") in fields_block.fields
+
+    def test_title_truncated_at_150_chars(self) -> None:
+        """150文字を超えるタイトルがトリミングされること"""
+        long_title = "あ" * 200
+        meta = Meta(
+            title=long_title,
+            url="https://example.com",
+            author=None,
+            category_large=None,
+            category_medium=None,
+            published_at=None,
+        )
+        blocks = build_meta_blocks(meta)
+        header_block = blocks[0]
+        assert isinstance(header_block, SlackHeaderBlock)
+        assert header_block.text.text == "あ" * 150
+        assert len(header_block.text.text) == 150
+
+    def test_title_exactly_150_chars_not_truncated(self) -> None:
+        """ちょうど150文字のタイトルはトリミングされないこと"""
+        title_150 = "あ" * 150
+        meta = Meta(
+            title=title_150,
+            url="https://example.com",
+            author=None,
+            category_large=None,
+            category_medium=None,
+            published_at=None,
+        )
+        blocks = build_meta_blocks(meta)
+        header_block = blocks[0]
+        assert header_block.text.text == title_150
+
+
+class TestBuildSummaryBlocks:
+    """build_summary_blocks関数のテスト"""
+
+    def test_multiple_points(self) -> None:
+        """複数pointsのSummaryモデルからheaderブロック+rich_text_listの2ブロックが生成されること"""
+        summary = Summary(points=["ポイント1", "ポイント2", "ポイント3"])
+        blocks = build_summary_blocks(summary)
+
+        assert len(blocks) == 2
+
+        # 1ブロック目: headerブロック
+        header_block = blocks[0]
+        assert isinstance(header_block, SlackHeaderBlock)
+        assert header_block.text == SlackTextObject(type="plain_text", text="Summary")
+
+        # 2ブロック目: rich_textブロック
+        rich_text_block = blocks[1]
+        assert isinstance(rich_text_block, SlackRichTextBlock)
+        assert len(rich_text_block.elements) == 1
+        rich_text_list = rich_text_block.elements[0]
+        assert isinstance(rich_text_list, SlackRichTextList)
+        assert rich_text_list.style == "bullet"
+        assert len(rich_text_list.elements) == 3
+        assert rich_text_list.elements[0] == SlackRichTextSection(
+            elements=[SlackTextElement(text="ポイント1")]
+        )
+        assert rich_text_list.elements[1] == SlackRichTextSection(
+            elements=[SlackTextElement(text="ポイント2")]
+        )
+        assert rich_text_list.elements[2] == SlackRichTextSection(
+            elements=[SlackTextElement(text="ポイント3")]
+        )
+
+    def test_single_point(self) -> None:
+        """1ポイントのSummaryモデルでもheader+rich_textの2ブロックが生成されること"""
+        summary = Summary(points=["唯一のポイント"])
+        blocks = build_summary_blocks(summary)
+
+        assert len(blocks) == 2
+        assert isinstance(blocks[0], SlackHeaderBlock)
+        rich_text_block = blocks[1]
+        assert isinstance(rich_text_block, SlackRichTextBlock)
+        rich_text_list = rich_text_block.elements[0]
+        assert rich_text_list.style == "bullet"
+        assert len(rich_text_list.elements) == 1
+        assert rich_text_list.elements[0] == SlackRichTextSection(
+            elements=[SlackTextElement(text="唯一のポイント")]
+        )
+
+
+class TestBuildDetailBlocks:
+    """build_detail_blocks関数のテスト"""
+
+    def test_returns_header_and_section(self) -> None:
+        """detail文字列からheaderブロック（Details）+sectionブロックの2ブロックが生成されること"""
+        detail = "# 詳細\n記事の詳細内容"
+        blocks = build_detail_blocks(detail)
+
+        assert len(blocks) == 2
+
+        # 1ブロック目: headerブロック
+        header_block = blocks[0]
+        assert isinstance(header_block, SlackHeaderBlock)
+        assert header_block.text == SlackTextObject(type="plain_text", text="Details")
+
+        # 2ブロック目: detail sectionブロック
+        detail_block = blocks[1]
+        assert isinstance(detail_block, SlackSectionBlock)
+        assert detail_block.text == SlackTextObject(
+            type="mrkdwn",
+            text="# 詳細\n記事の詳細内容",
+        )
+
+    def test_detail_over_3000_chars_split_into_multiple_sections(self) -> None:
+        """3000文字を超えるdetailが複数sectionに分割されること"""
+        detail = "あ" * 7000
+        blocks = build_detail_blocks(detail)
+
+        # header + 3 sections (3000 + 3000 + 1000)
+        assert len(blocks) == 4
+        assert isinstance(blocks[0], SlackHeaderBlock)
+        assert isinstance(blocks[1], SlackSectionBlock)
+        assert isinstance(blocks[2], SlackSectionBlock)
+        assert isinstance(blocks[3], SlackSectionBlock)
+        assert len(blocks[1].text.text) == 3000
+        assert len(blocks[2].text.text) == 3000
+        assert len(blocks[3].text.text) == 1000
+
+    def test_detail_exactly_3000_chars_single_section(self) -> None:
+        """ちょうど3000文字のdetailは分割されないこと"""
+        detail = "あ" * 3000
+        blocks = build_detail_blocks(detail)
+
+        assert len(blocks) == 2
+        assert isinstance(blocks[0], SlackHeaderBlock)
+        assert isinstance(blocks[1], SlackSectionBlock)
+        assert len(blocks[1].text.text) == 3000
