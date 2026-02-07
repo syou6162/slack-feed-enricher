@@ -136,13 +136,16 @@ def build_meta_blocks(meta: Meta) -> list[SlackBlock]:
 def build_summary_blocks(summary: Summary) -> list[SlackBlock]:
     """SummaryモデルからSlack Block Kitブロック配列を生成する
 
+    summary.pointsの構造を活かし、各pointを箇条書き（•）で表示する。
+
     Args:
         summary: Summaryモデルインスタンス
 
     Returns:
         SlackBlockのリスト（sectionブロック1つ）
     """
-    text = format_summary_block(summary.model_dump())
+    points_text = "\n".join(f"• {point}" for point in summary.points)
+    text = f"*Summary*\n{points_text}"
     return [SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=text))]
 
 

@@ -510,8 +510,8 @@ class TestBuildMetaBlocks:
 class TestBuildSummaryBlocks:
     """build_summary_blocks関数のテスト"""
 
-    def test_returns_section_block_with_mrkdwn(self) -> None:
-        """SummaryモデルからsectionブロックのリストがSlack mrkdwn形式で生成されること"""
+    def test_multiple_points(self) -> None:
+        """複数pointsのSummaryモデルからSummaryヘッダー+箇条書きのsectionブロックが生成されること"""
         summary = Summary(points=["ポイント1", "ポイント2", "ポイント3"])
         blocks = build_summary_blocks(summary)
 
@@ -521,7 +521,7 @@ class TestBuildSummaryBlocks:
         assert block.type == "section"
         assert block.text == SlackTextObject(
             type="mrkdwn",
-            text="- ポイント1\n- ポイント2\n- ポイント3",
+            text="*Summary*\n• ポイント1\n• ポイント2\n• ポイント3",
         )
 
     def test_single_point(self) -> None:
@@ -530,4 +530,7 @@ class TestBuildSummaryBlocks:
         blocks = build_summary_blocks(summary)
 
         assert len(blocks) == 1
-        assert blocks[0].text.text == "- 唯一のポイント"
+        assert blocks[0].text == SlackTextObject(
+            type="mrkdwn",
+            text="*Summary*\n• 唯一のポイント",
+        )
