@@ -7,7 +7,7 @@ import pytest
 from claude_agent_sdk import ResultMessage
 
 from slack_feed_enricher.claude.exceptions import ClaudeAPIError, StructuredOutputError
-from slack_feed_enricher.claude.summarizer import fetch_and_summarize
+from slack_feed_enricher.claude.summarizer import build_summary_prompt, fetch_and_summarize
 
 
 class TestFetchAndSummarize:
@@ -68,3 +68,38 @@ class TestFetchAndSummarize:
 
         with pytest.raises(StructuredOutputError, match="構造化出力が取得できませんでした"):
             await fetch_and_summarize(mock_query, "https://example.com")
+
+
+class TestBuildSummaryPrompt:
+    """build_summary_prompt関数のテスト"""
+
+    def test_main_url_only(self) -> None:
+        """メインURLのみ → プロンプトにURLが含まれる"""
+        prompt = build_summary_prompt("https://example.com/article")
+        assert "https://example.com/article" in prompt
+        # 補足URLセクションが含まれないこと
+        assert "補足URL" not in prompt
+
+    def test_main_url_with_supplementary_urls(self) -> None:
+        """メインURL + 補足URLs → プロンプトに全URLが含まれる"""
+        prompt = build_summary_prompt(
+            "https://example.com/article",
+            supplementary_urls=["https://tool.example.com", "https://ref.example.com"],
+        )
+        assert "https://example.com/article" in prompt
+        assert "https://tool.example.com" in prompt
+        assert "https://ref.example.com" in prompt
+        # 補足URLセクションが含まれること
+        assert "補足URL" in prompt
+
+    def test_supplementary_urls_empty_list(self) -> None:
+        """補足URLが空リスト → メインURLのみの場合と同様に動作"""
+        prompt = build_summary_prompt("https://example.com/article", supplementary_urls=[])
+        assert "https://example.com/article" in prompt
+        assert "補足URL" not in prompt
+
+    def test_supplementary_urls_none(self) -> None:
+        """supplementary_urls=None（デフォルト値） → メインURLのみの場合と同様に動作"""
+        prompt = build_summary_prompt("https://example.com/article", supplementary_urls=None)
+        assert "https://example.com/article" in prompt
+        assert "補足URL" not in prompt
