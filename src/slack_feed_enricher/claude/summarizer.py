@@ -194,7 +194,9 @@ async def fetch_and_summarize(
         raise ClaudeAPIError("要約処理でエラーが発生しました", result_message.result)
 
     if result_message.structured_output is None:
-        raise StructuredOutputError("構造化出力が取得できませんでした")
+        raise StructuredOutputError(
+            f"構造化出力が取得できませんでした (subtype={result_message.subtype}, result={result_message.result})"
+        )
 
     so = result_message.structured_output
 

@@ -135,17 +135,24 @@ class TestFetchAndSummarize:
 
     @pytest.mark.asyncio
     async def test_raises_structured_output_error_when_structured_output_is_none(self) -> None:
-        """structured_outputがNoneの場合にStructuredOutputErrorが発生すること"""
+        """structured_outputがNoneの場合にStructuredOutputErrorが発生し、subtypeとresultが含まれること"""
         mock_result = AsyncMock(spec=ResultMessage)
         mock_result.is_error = False
         mock_result.structured_output = None
+        mock_result.subtype = "error_max_structured_output_retries"
+        mock_result.result = "Failed to generate structured output"
 
         async def mock_query(**kwargs: object) -> AsyncIterator[object]:  # noqa: ARG001
             """モックquery関数"""
             yield mock_result
 
-        with pytest.raises(StructuredOutputError, match="構造化出力が取得できませんでした"):
+        with pytest.raises(StructuredOutputError) as exc_info:
             await fetch_and_summarize(mock_query, "https://example.com")
+
+        assert str(exc_info.value) == (
+            "構造化出力が取得できませんでした"
+            " (subtype=error_max_structured_output_retries, result=Failed to generate structured output)"
+        )
 
 
 class TestBuildSummaryPrompt:
