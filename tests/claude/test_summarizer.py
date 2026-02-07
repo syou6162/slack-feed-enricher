@@ -585,7 +585,7 @@ class TestBuildSummaryBlocks:
         assert isinstance(points_block, SlackSectionBlock)
         assert points_block.text == SlackTextObject(
             type="mrkdwn",
-            text="• ポイント1\n• ポイント2\n• ポイント3",
+            text="- ポイント1\n- ポイント2\n- ポイント3",
         )
 
     def test_single_point(self) -> None:
@@ -597,7 +597,7 @@ class TestBuildSummaryBlocks:
         assert isinstance(blocks[0], SlackHeaderBlock)
         assert blocks[1].text == SlackTextObject(
             type="mrkdwn",
-            text="• 唯一のポイント",
+            text="- 唯一のポイント",
         )
 
 

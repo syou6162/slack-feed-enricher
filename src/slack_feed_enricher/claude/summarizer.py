@@ -155,7 +155,7 @@ def build_summary_blocks(summary: Summary) -> list[SlackBlock]:
         SlackBlockのリスト（headerブロック + sectionブロック）
     """
     header_block = SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Summary"))
-    points_text = "\n".join(f"• {point}" for point in summary.points)
+    points_text = "\n".join(f"- {point}" for point in summary.points)
     points_section = SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=points_text))
     return [header_block, points_section]
 
