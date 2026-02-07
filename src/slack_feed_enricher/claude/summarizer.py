@@ -12,6 +12,7 @@ from slack_feed_enricher.claude.exceptions import (
     NoResultMessageError,
     StructuredOutputError,
 )
+from slack_feed_enricher.slack.blocks import SlackBlock, SlackSectionBlock, SlackTextObject
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,32 @@ def build_summary_prompt(url: str, supplementary_urls: list[str] | None = None) 
         )
 
     return "\n".join(parts)
+
+
+def build_meta_blocks(meta: Meta) -> list[SlackBlock]:
+    """MetaモデルからSlack Block Kitブロック配列を生成する
+
+    Args:
+        meta: Metaモデルインスタンス
+
+    Returns:
+        SlackBlockのリスト（sectionブロック1つ）
+    """
+    text = format_meta_block(meta.model_dump())
+    return [SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=text))]
+
+
+def build_summary_blocks(summary: Summary) -> list[SlackBlock]:
+    """SummaryモデルからSlack Block Kitブロック配列を生成する
+
+    Args:
+        summary: Summaryモデルインスタンス
+
+    Returns:
+        SlackBlockのリスト（sectionブロック1つ）
+    """
+    text = format_summary_block(summary.model_dump())
+    return [SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=text))]
 
 
 def format_meta_block(meta: dict[str, Any]) -> str:

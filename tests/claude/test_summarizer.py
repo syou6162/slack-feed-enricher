@@ -11,11 +11,14 @@ from slack_feed_enricher.claude.summarizer import (
     Meta,
     StructuredOutput,
     Summary,
+    build_meta_blocks,
+    build_summary_blocks,
     build_summary_prompt,
     fetch_and_summarize,
     format_meta_block,
     format_summary_block,
 )
+from slack_feed_enricher.slack.blocks import SlackSectionBlock, SlackTextObject
 
 
 class TestStructuredOutputSchema:
@@ -416,3 +419,81 @@ class TestFormatSummaryBlock:
         summary = {"points": ["唯一のポイント"]}
         result = format_summary_block(summary)
         assert result == "- 唯一のポイント"
+
+
+class TestBuildMetaBlocks:
+    """build_meta_blocks関数のテスト"""
+
+    def test_returns_section_block_with_mrkdwn(self) -> None:
+        """MetaモデルからsectionブロックのリストがSlack mrkdwn形式で生成されること"""
+        meta = Meta(
+            title="BigQueryの最適化テクニック",
+            url="https://example.com/article",
+            author="yamada_taro",
+            category_large="データエンジニアリング",
+            category_medium="BigQuery",
+            published_at="2025-01-15T10:30:00Z",
+        )
+        blocks = build_meta_blocks(meta)
+
+        assert len(blocks) == 1
+        block = blocks[0]
+        assert isinstance(block, SlackSectionBlock)
+        assert block.type == "section"
+        assert block.text == SlackTextObject(
+            type="mrkdwn",
+            text=(
+                "*BigQueryの最適化テクニック*\n"
+                "URL: https://example.com/article\n"
+                "著者: yamada_taro\n"
+                "カテゴリー: データエンジニアリング / BigQuery\n"
+                "投稿日時: 2025-01-15T10:30:00Z"
+            ),
+        )
+
+    def test_null_fields(self) -> None:
+        """nullフィールドのMetaモデルでも正しくブロックが生成されること"""
+        meta = Meta(
+            title="無名の記事",
+            url="https://example.com/anonymous",
+            author=None,
+            category_large=None,
+            category_medium=None,
+            published_at=None,
+        )
+        blocks = build_meta_blocks(meta)
+
+        assert len(blocks) == 1
+        assert blocks[0].text.text == (
+            "*無名の記事*\n"
+            "URL: https://example.com/anonymous\n"
+            "著者: 不明\n"
+            "カテゴリー: 不明\n"
+            "投稿日時: 不明"
+        )
+
+
+class TestBuildSummaryBlocks:
+    """build_summary_blocks関数のテスト"""
+
+    def test_returns_section_block_with_mrkdwn(self) -> None:
+        """SummaryモデルからsectionブロックのリストがSlack mrkdwn形式で生成されること"""
+        summary = Summary(points=["ポイント1", "ポイント2", "ポイント3"])
+        blocks = build_summary_blocks(summary)
+
+        assert len(blocks) == 1
+        block = blocks[0]
+        assert isinstance(block, SlackSectionBlock)
+        assert block.type == "section"
+        assert block.text == SlackTextObject(
+            type="mrkdwn",
+            text="- ポイント1\n- ポイント2\n- ポイント3",
+        )
+
+    def test_single_point(self) -> None:
+        """1ポイントのSummaryモデルでも正しくブロックが生成されること"""
+        summary = Summary(points=["唯一のポイント"])
+        blocks = build_summary_blocks(summary)
+
+        assert len(blocks) == 1
+        assert blocks[0].text.text == "- 唯一のポイント"
