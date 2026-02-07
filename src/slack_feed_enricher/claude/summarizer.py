@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
+from pydantic import BaseModel, ConfigDict, Field
 
 from slack_feed_enricher.claude.exceptions import (
     ClaudeAPIError,
@@ -16,41 +17,31 @@ logger = logging.getLogger(__name__)
 
 QueryFunc = Callable[..., AsyncIterator[Any]]
 
+
+class Meta(BaseModel):
+    model_config = ConfigDict(json_schema_extra=None)
+    title: str
+    url: str
+    author: str | None
+    category_large: str | None
+    category_medium: str | None
+    published_at: str | None
+
+
+class Summary(BaseModel):
+    points: list[str] = Field(min_length=1, max_length=5)
+
+
+class StructuredOutput(BaseModel):
+    meta: Meta
+    summary: Summary
+    detail: str
+
+
 # 構造化出力スキーマ
 OUTPUT_SCHEMA = {
     "type": "json_schema",
-    "schema": {
-        "type": "object",
-        "properties": {
-            "meta": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string", "description": "記事のタイトル"},
-                    "url": {"type": "string", "description": "記事のURL"},
-                    "author": {"type": ["string", "null"], "description": "著者名（はてなID、Twitter/X ID、本名など。取得できない場合はnull）"},
-                    "category_large": {"type": ["string", "null"], "description": "大カテゴリー（例: データエンジニアリング。判定できない場合はnull）"},
-                    "category_medium": {"type": ["string", "null"], "description": "中カテゴリー（例: BigQuery。判定できない場合はnull）"},
-                    "published_at": {"type": ["string", "null"], "description": "記事の投稿日時（ISO 8601形式。取得できない場合はnull）"},
-                },
-                "required": ["title", "url", "author", "category_large", "category_medium", "published_at"],
-            },
-            "summary": {
-                "type": "object",
-                "properties": {
-                    "points": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "minItems": 1,
-                        "maxItems": 5,
-                        "description": "記事の核心を簡潔にまとめた箇条書き（最大5項目）",
-                    }
-                },
-                "required": ["points"],
-            },
-            "detail": {"type": "string", "description": "記事内容を構造化した詳細説明（markdown形式）"},
-        },
-        "required": ["meta", "summary", "detail"],
-    },
+    "schema": StructuredOutput.model_json_schema(),
 }
 
 

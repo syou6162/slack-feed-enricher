@@ -8,11 +8,70 @@ from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
 
 from slack_feed_enricher.claude.exceptions import ClaudeAPIError, StructuredOutputError
 from slack_feed_enricher.claude.summarizer import (
+    Meta,
+    StructuredOutput,
+    Summary,
     build_summary_prompt,
     fetch_and_summarize,
     format_meta_block,
     format_summary_block,
 )
+
+
+class TestStructuredOutputSchema:
+    """StructuredOutput Pydanticモデルのスキーマテスト"""
+
+    def test_schema_has_required_top_level_keys(self) -> None:
+        """model_json_schema()にmeta, summary, detailがrequiredとして含まれること"""
+        schema = StructuredOutput.model_json_schema()
+        assert "required" in schema
+        assert set(schema["required"]) == {"meta", "summary", "detail"}
+
+    def test_schema_has_properties(self) -> None:
+        """model_json_schema()にproperties（meta, summary, detail）が含まれること"""
+        schema = StructuredOutput.model_json_schema()
+        assert "properties" in schema
+        assert "meta" in schema["properties"]
+        assert "summary" in schema["properties"]
+        assert "detail" in schema["properties"]
+
+    def test_meta_model_fields(self) -> None:
+        """Metaモデルに必要なフィールドがすべて定義されていること"""
+        meta = Meta(
+            title="テスト",
+            url="https://example.com",
+            author=None,
+            category_large=None,
+            category_medium=None,
+            published_at=None,
+        )
+        assert meta.title == "テスト"
+        assert meta.url == "https://example.com"
+        assert meta.author is None
+
+    def test_summary_model_fields(self) -> None:
+        """Summaryモデルにpointsフィールドが定義されていること"""
+        summary = Summary(points=["ポイント1", "ポイント2"])
+        assert summary.points == ["ポイント1", "ポイント2"]
+
+    def test_structured_output_model_validate(self) -> None:
+        """dictからStructuredOutputにmodel_validateできること"""
+        data = {
+            "meta": {
+                "title": "テスト記事",
+                "url": "https://example.com",
+                "author": "test_author",
+                "category_large": "テスト",
+                "category_medium": "サブカテゴリ",
+                "published_at": "2025-01-15T10:30:00Z",
+            },
+            "summary": {"points": ["ポイント1"]},
+            "detail": "詳細内容",
+        }
+        result = StructuredOutput.model_validate(data)
+        assert result.meta.title == "テスト記事"
+        assert result.summary.points == ["ポイント1"]
+        assert result.detail == "詳細内容"
 
 
 class TestFetchAndSummarize:
