@@ -6,9 +6,10 @@ from slack_feed_enricher.claude.exceptions import (
     NoResultMessageError,
     StructuredOutputError,
 )
-from slack_feed_enricher.claude.summarizer import fetch_and_summarize
+from slack_feed_enricher.claude.summarizer import build_summary_prompt, fetch_and_summarize
 
 __all__ = [
+    "build_summary_prompt",
     "fetch_and_summarize",
     "ClaudeSDKError",
     "NoResultMessageError",
