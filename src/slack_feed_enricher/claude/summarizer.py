@@ -29,6 +29,56 @@ OUTPUT_SCHEMA = {
 }
 
 
+def build_summary_prompt(url: str, supplementary_urls: list[str] | None = None) -> str:
+    """要約用プロンプトを構築する
+
+    Args:
+        url: メインURL（記事本体）
+        supplementary_urls: 補足URL（引用先、ツール説明等）
+
+    Returns:
+        構築されたプロンプト文字列
+    """
+    parts = [
+        "以下のURLの内容をすべてWebFetchで取得してください。",
+        "",
+        f"メインURL（記事本体）: {url}",
+    ]
+
+    if supplementary_urls:
+        parts.append("")
+        parts.append("補足URL:")
+        for sup_url in supplementary_urls:
+            parts.append(f"- {sup_url}")
+        parts.append("")
+        parts.append(
+            "メインURLが主たる情報源です。補足URLは記事内で言及されているツールや"
+            "引用元の詳細情報なので、要約に適宜取り込んでください。"
+        )
+
+    parts.append("")
+    parts.append("取得した内容をもとに、以下の3つのブロックに分けて出力してください。")
+    parts.append("")
+    parts.append("## ブロック1: メタ情報")
+    parts.append("- 記事のタイトル")
+    parts.append("- URL")
+    parts.append("- 著者名（はてなブログID、Twitter/X ID、本名など、取得できるもの）")
+    parts.append("- カテゴリー（大カテゴリー / 中カテゴリーの2階層）")
+    parts.append("  例: データエンジニアリング / BigQuery")
+    parts.append("- 記事の投稿日時")
+    parts.append("")
+    parts.append("## ブロック2: 簡潔な要約")
+    parts.append("- 箇条書きで最大5行")
+    parts.append("- 記事の核心を簡潔にまとめる")
+    parts.append("")
+    parts.append("## ブロック3: 詳細")
+    parts.append("- 記事の内容を構造化して詳細に説明")
+    parts.append("- 要約ではなく、記事の内容を網羅的に記述")
+    parts.append("- ただし、Slack APIのメッセージ長制限（40,000文字）を考慮し、適度な長さに収める")
+
+    return "\n".join(parts)
+
+
 async def fetch_and_summarize(
     query_func: QueryFunc,
     url: str,
