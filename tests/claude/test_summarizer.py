@@ -53,16 +53,11 @@ class TestFetchAndSummarize:
 
         result = await fetch_and_summarize(mock_query, "https://example.com")
 
-        assert isinstance(result, list)
-        assert len(result) == 3
-        # メタ情報ブロック
-        assert "テスト記事" in result[0]
-        assert "https://example.com" in result[0]
-        # 要約ブロック
-        assert "ポイント1" in result[1]
-        assert "ポイント2" in result[1]
-        # 詳細ブロック
-        assert result[2] == "# 詳細\n記事の詳細内容"
+        assert result == [
+            "*テスト記事*\nURL: https://example.com\n著者: test_author\nカテゴリー: テスト / サブカテゴリ\n投稿日時: 2025-01-15T10:30:00Z",
+            "- ポイント1\n- ポイント2",
+            "# 詳細\n記事の詳細内容",
+        ]
 
     @pytest.mark.asyncio
     async def test_returns_three_blocks_with_supplementary_urls(self) -> None:
@@ -95,13 +90,18 @@ class TestFetchAndSummarize:
             supplementary_urls=["https://tool.example.com", "https://ref.example.com"],
         )
 
-        assert isinstance(result, list)
-        assert len(result) == 3
-        # プロンプトに補足URLが含まれていること
+        assert result == [
+            "*テスト記事*\nURL: https://example.com\n著者: test_author\nカテゴリー: テスト / サブカテゴリ\n投稿日時: 2025-01-15T10:30:00Z",
+            "- ポイント1",
+            "# 詳細\n記事の詳細内容",
+        ]
+        # プロンプトが補足URL付きで構築されていること
         assert len(received_prompts) == 1
-        assert "https://tool.example.com" in received_prompts[0]
-        assert "https://ref.example.com" in received_prompts[0]
-        assert "補足URL" in received_prompts[0]
+        expected_prompt = build_summary_prompt(
+            "https://example.com",
+            supplementary_urls=["https://tool.example.com", "https://ref.example.com"],
+        )
+        assert received_prompts[0] == expected_prompt
 
     @pytest.mark.asyncio
     async def test_raises_structured_output_error_when_keys_missing(self) -> None:
@@ -152,35 +152,84 @@ class TestBuildSummaryPrompt:
     """build_summary_prompt関数のテスト"""
 
     def test_main_url_only(self) -> None:
-        """メインURLのみ → プロンプトにURLが含まれる"""
+        """メインURLのみ → 補足URLセクションなしのプロンプトが生成される"""
         prompt = build_summary_prompt("https://example.com/article")
-        assert "https://example.com/article" in prompt
-        # 補足URLセクションが含まれないこと
-        assert "補足URL" not in prompt
+        expected = (
+            "以下のURLの内容をすべてWebFetchで取得してください。\n"
+            "\n"
+            "メインURL（記事本体）: https://example.com/article\n"
+            "\n"
+            "取得した内容をもとに、以下の3つのブロックに分けて出力してください。\n"
+            "\n"
+            "## ブロック1: メタ情報\n"
+            "- 記事のタイトル\n"
+            "- URL\n"
+            "- 著者名（はてなブログID、Twitter/X ID、本名など、取得できるもの）\n"
+            "- カテゴリー（大カテゴリー / 中カテゴリーの2階層）\n"
+            "  例: データエンジニアリング / BigQuery\n"
+            "- 記事の投稿日時\n"
+            "\n"
+            "## ブロック2: 簡潔な要約\n"
+            "- 箇条書きで最大5行\n"
+            "- 記事の核心を簡潔にまとめる\n"
+            "\n"
+            "## ブロック3: 詳細\n"
+            "- 記事の内容を構造化して詳細に説明\n"
+            "- 要約ではなく、記事の内容を網羅的に記述\n"
+            "- ただし、Slack APIのメッセージ長制限（40,000文字）を考慮し、適度な長さに収める"
+        )
+        assert prompt == expected
 
     def test_main_url_with_supplementary_urls(self) -> None:
-        """メインURL + 補足URLs → プロンプトに全URLが含まれる"""
+        """メインURL + 補足URLs → 補足URLセクション付きのプロンプトが生成される"""
         prompt = build_summary_prompt(
             "https://example.com/article",
             supplementary_urls=["https://tool.example.com", "https://ref.example.com"],
         )
-        assert "https://example.com/article" in prompt
-        assert "https://tool.example.com" in prompt
-        assert "https://ref.example.com" in prompt
-        # 補足URLセクションが含まれること
-        assert "補足URL" in prompt
+        expected = (
+            "以下のURLの内容をすべてWebFetchで取得してください。\n"
+            "\n"
+            "メインURL（記事本体）: https://example.com/article\n"
+            "\n"
+            "補足URL:\n"
+            "- https://tool.example.com\n"
+            "- https://ref.example.com\n"
+            "\n"
+            "メインURLが主たる情報源です。補足URLは記事内で言及されているツールや"
+            "引用元の詳細情報なので、要約に適宜取り込んでください。\n"
+            "\n"
+            "取得した内容をもとに、以下の3つのブロックに分けて出力してください。\n"
+            "\n"
+            "## ブロック1: メタ情報\n"
+            "- 記事のタイトル\n"
+            "- URL\n"
+            "- 著者名（はてなブログID、Twitter/X ID、本名など、取得できるもの）\n"
+            "- カテゴリー（大カテゴリー / 中カテゴリーの2階層）\n"
+            "  例: データエンジニアリング / BigQuery\n"
+            "- 記事の投稿日時\n"
+            "\n"
+            "## ブロック2: 簡潔な要約\n"
+            "- 箇条書きで最大5行\n"
+            "- 記事の核心を簡潔にまとめる\n"
+            "\n"
+            "## ブロック3: 詳細\n"
+            "- 記事の内容を構造化して詳細に説明\n"
+            "- 要約ではなく、記事の内容を網羅的に記述\n"
+            "- ただし、Slack APIのメッセージ長制限（40,000文字）を考慮し、適度な長さに収める"
+        )
+        assert prompt == expected
 
     def test_supplementary_urls_empty_list(self) -> None:
-        """補足URLが空リスト → メインURLのみの場合と同様に動作"""
-        prompt = build_summary_prompt("https://example.com/article", supplementary_urls=[])
-        assert "https://example.com/article" in prompt
-        assert "補足URL" not in prompt
+        """補足URLが空リスト → メインURLのみの場合と同一の出力"""
+        prompt_empty = build_summary_prompt("https://example.com/article", supplementary_urls=[])
+        prompt_none = build_summary_prompt("https://example.com/article")
+        assert prompt_empty == prompt_none
 
     def test_supplementary_urls_none(self) -> None:
-        """supplementary_urls=None（デフォルト値） → メインURLのみの場合と同様に動作"""
-        prompt = build_summary_prompt("https://example.com/article", supplementary_urls=None)
-        assert "https://example.com/article" in prompt
-        assert "補足URL" not in prompt
+        """supplementary_urls=None（デフォルト値） → メインURLのみの場合と同一の出力"""
+        prompt_explicit_none = build_summary_prompt("https://example.com/article", supplementary_urls=None)
+        prompt_default = build_summary_prompt("https://example.com/article")
+        assert prompt_explicit_none == prompt_default
 
 
 class TestFormatMetaBlock:
@@ -197,12 +246,13 @@ class TestFormatMetaBlock:
             "published_at": "2025-01-15T10:30:00Z",
         }
         result = format_meta_block(meta)
-        assert "BigQueryの最適化テクニック" in result
-        assert "https://example.com/article" in result
-        assert "yamada_taro" in result
-        assert "データエンジニアリング" in result
-        assert "BigQuery" in result
-        assert "2025-01-15T10:30:00Z" in result
+        assert result == (
+            "*BigQueryの最適化テクニック*\n"
+            "URL: https://example.com/article\n"
+            "著者: yamada_taro\n"
+            "カテゴリー: データエンジニアリング / BigQuery\n"
+            "投稿日時: 2025-01-15T10:30:00Z"
+        )
 
     def test_null_fields(self) -> None:
         """nullフィールドの扱い（著者不明、カテゴリー不明、投稿日時不明）"""
@@ -215,9 +265,13 @@ class TestFormatMetaBlock:
             "published_at": None,
         }
         result = format_meta_block(meta)
-        assert "無名の記事" in result
-        assert "https://example.com/anonymous" in result
-        assert "不明" in result
+        assert result == (
+            "*無名の記事*\n"
+            "URL: https://example.com/anonymous\n"
+            "著者: 不明\n"
+            "カテゴリー: 不明\n"
+            "投稿日時: 不明"
+        )
 
 
 class TestFormatSummaryBlock:
@@ -233,15 +287,14 @@ class TestFormatSummaryBlock:
             ]
         }
         result = format_summary_block(summary)
-        assert "BigQueryのパーティショニングの活用方法" in result
-        assert "クエリコストの削減テクニック" in result
-        assert "マテリアライズドビューの効果的な使い方" in result
-        # 箇条書き形式であること
-        assert result.count("- ") >= 3
+        assert result == (
+            "- BigQueryのパーティショニングの活用方法\n"
+            "- クエリコストの削減テクニック\n"
+            "- マテリアライズドビューの効果的な使い方"
+        )
 
     def test_single_point(self) -> None:
         """1ポイントのみの場合"""
         summary = {"points": ["唯一のポイント"]}
         result = format_summary_block(summary)
-        assert "唯一のポイント" in result
-        assert "- " in result
+        assert result == "- 唯一のポイント"
