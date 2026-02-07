@@ -704,9 +704,9 @@ class TestBuildSummaryBlocks:
 class TestBuildDetailBlocks:
     """build_detail_blocks関数のテスト"""
 
-    def test_returns_header_and_section(self) -> None:
-        """detail文字列からheaderブロック（Details）+sectionブロックの2ブロックが生成されること"""
-        detail = "# 詳細\n記事の詳細内容"
+    def test_returns_header_and_section_with_mrkdwn_conversion(self) -> None:
+        """Markdownがmrkdwnに変換されてsectionブロックに格納されること"""
+        detail = "**bold** and [link](https://example.com)"
         blocks = build_detail_blocks(detail)
 
         assert len(blocks) == 2
@@ -716,28 +716,38 @@ class TestBuildDetailBlocks:
         assert isinstance(header_block, SlackHeaderBlock)
         assert header_block.text == SlackTextObject(type="plain_text", text="Details")
 
-        # 2ブロック目: detail sectionブロック
+        # 2ブロック目: mrkdwn変換後のsectionブロック
         detail_block = blocks[1]
         assert isinstance(detail_block, SlackSectionBlock)
         assert detail_block.text == SlackTextObject(
             type="mrkdwn",
-            text="# 詳細\n記事の詳細内容",
+            text="*bold* and <https://example.com|link>",
         )
 
-    def test_detail_over_3000_chars_split_into_multiple_sections(self) -> None:
-        """3000文字を超えるdetailが複数sectionに分割されること"""
-        detail = "あ" * 7000
+    def test_split_at_newline_boundary(self) -> None:
+        """3000文字超のdetailが改行位置で分割されること"""
+        # 2900文字 + 改行 + 200文字 = 3101文字（変換後）
+        line1 = "あ" * 2900
+        line2 = "い" * 200
+        detail = f"{line1}\n{line2}"
         blocks = build_detail_blocks(detail)
 
-        # header + 3 sections (3000 + 3000 + 1000)
-        assert len(blocks) == 4
+        assert len(blocks) == 3
         assert isinstance(blocks[0], SlackHeaderBlock)
-        assert isinstance(blocks[1], SlackSectionBlock)
-        assert isinstance(blocks[2], SlackSectionBlock)
-        assert isinstance(blocks[3], SlackSectionBlock)
+        # 改行位置で分割されるため、1つ目は2900文字
+        assert blocks[1].text.text == line1
+        # 2つ目は200文字
+        assert blocks[2].text.text == line2
+
+    def test_split_long_text_without_newlines(self) -> None:
+        """改行のない3000文字超のdetailが文字数ベースで強制分割されること"""
+        detail = "あ" * 4000
+        blocks = build_detail_blocks(detail)
+
+        assert len(blocks) == 3
+        assert isinstance(blocks[0], SlackHeaderBlock)
         assert len(blocks[1].text.text) == 3000
-        assert len(blocks[2].text.text) == 3000
-        assert len(blocks[3].text.text) == 1000
+        assert len(blocks[2].text.text) == 1000
 
     def test_detail_exactly_3000_chars_single_section(self) -> None:
         """ちょうど3000文字のdetailは分割されないこと"""
@@ -748,3 +758,37 @@ class TestBuildDetailBlocks:
         assert isinstance(blocks[0], SlackHeaderBlock)
         assert isinstance(blocks[1], SlackSectionBlock)
         assert len(blocks[1].text.text) == 3000
+
+    def test_entity_not_split(self) -> None:
+        """&amp;エンティティの途中で分割されないこと"""
+        # 2998文字 + "&amp;" (5文字) = 3003文字
+        prefix = "あ" * 2998
+        detail = f"{prefix}A & B"  # Markdown入力。変換後: prefix + "A &amp; B" = 2998 + 8 = 3006文字
+        blocks = build_detail_blocks(detail)
+
+        # 分割されるが、&amp;の途中では切れない
+        assert len(blocks) >= 2
+        for block in blocks[1:]:
+            text = block.text.text
+            # &amp; が途中で切れていないことを確認
+            assert "&am" not in text or "&amp;" in text
+
+    def test_multiple_sections_over_3000(self) -> None:
+        """7000文字超のdetailが適切に複数sectionに分割されること"""
+        # 2500文字 + 改行 + 2500文字 + 改行 + 2500文字 = 7502文字
+        line = "あ" * 2500
+        detail = f"{line}\n{line}\n{line}"
+        blocks = build_detail_blocks(detail)
+
+        assert isinstance(blocks[0], SlackHeaderBlock)
+        # 全sectionブロックが3000文字以下
+        for block in blocks[1:]:
+            assert isinstance(block, SlackSectionBlock)
+            assert len(block.text.text) <= 3000
+
+    def test_escape_applied_in_detail(self) -> None:
+        """detailのテキスト内の&, <, >がエスケープされること"""
+        detail = "a < b & c > d"
+        blocks = build_detail_blocks(detail)
+
+        assert blocks[1].text.text == "a &lt; b &amp; c &gt; d"
