@@ -122,22 +122,41 @@ class TestFetchAndSummarize:
 
         result = await fetch_and_summarize(mock_query, "https://example.com")
 
-        assert isinstance(result, EnrichResult)
-        assert result.meta_text == (
-            "*テスト記事*\nURL: https://example.com\n著者: test_author\n"
-            "カテゴリー: テスト / サブカテゴリ\n投稿日時: 2025-01-15T10:30:00Z"
+        expected = EnrichResult(
+            meta_text=(
+                "*テスト記事*\nURL: https://example.com\n著者: test_author\n"
+                "カテゴリー: テスト / サブカテゴリ\n投稿日時: 2025-01-15T10:30:00Z"
+            ),
+            meta_blocks=[
+                SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="テスト記事")),
+                SlackSectionBlock(fields=[
+                    SlackTextObject(type="mrkdwn", text="*URL*"),
+                    SlackTextObject(type="mrkdwn", text="<https://example.com>"),
+                    SlackTextObject(type="mrkdwn", text="*Author*"),
+                    SlackTextObject(type="plain_text", text="test_author"),
+                    SlackTextObject(type="mrkdwn", text="*Category*"),
+                    SlackTextObject(type="plain_text", text="テスト / サブカテゴリ"),
+                    SlackTextObject(type="mrkdwn", text="*Published*"),
+                    SlackTextObject(type="plain_text", text="2025-01-15T10:30:00Z"),
+                ]),
+            ],
+            summary_text="- ポイント1\n- ポイント2",
+            summary_blocks=[
+                SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Summary")),
+                SlackRichTextBlock(elements=[
+                    SlackRichTextList(style="bullet", elements=[
+                        SlackRichTextSection(elements=[SlackTextElement(text="ポイント1")]),
+                        SlackRichTextSection(elements=[SlackTextElement(text="ポイント2")]),
+                    ]),
+                ]),
+            ],
+            detail_text="# 詳細\n記事の詳細内容",
+            detail_blocks=[
+                SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Details")),
+                SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text="# 詳細\n記事の詳細内容")),
+            ],
         )
-        assert result.summary_text == "- ポイント1\n- ポイント2"
-        assert result.detail_text == "# 詳細\n記事の詳細内容"
-        assert len(result.meta_blocks) == 2
-        assert isinstance(result.meta_blocks[0], SlackHeaderBlock)
-        assert isinstance(result.meta_blocks[1], SlackSectionBlock)
-        assert len(result.summary_blocks) == 2
-        assert isinstance(result.summary_blocks[0], SlackHeaderBlock)
-        assert isinstance(result.summary_blocks[1], SlackRichTextBlock)
-        assert len(result.detail_blocks) == 2
-        assert isinstance(result.detail_blocks[0], SlackHeaderBlock)
-        assert isinstance(result.detail_blocks[1], SlackSectionBlock)
+        assert result == expected
 
     @pytest.mark.asyncio
     async def test_returns_enrich_result_with_supplementary_urls(self) -> None:
@@ -170,13 +189,40 @@ class TestFetchAndSummarize:
             supplementary_urls=["https://tool.example.com", "https://ref.example.com"],
         )
 
-        assert isinstance(result, EnrichResult)
-        assert result.meta_text == (
-            "*テスト記事*\nURL: https://example.com\n著者: test_author\n"
-            "カテゴリー: テスト / サブカテゴリ\n投稿日時: 2025-01-15T10:30:00Z"
+        expected = EnrichResult(
+            meta_text=(
+                "*テスト記事*\nURL: https://example.com\n著者: test_author\n"
+                "カテゴリー: テスト / サブカテゴリ\n投稿日時: 2025-01-15T10:30:00Z"
+            ),
+            meta_blocks=[
+                SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="テスト記事")),
+                SlackSectionBlock(fields=[
+                    SlackTextObject(type="mrkdwn", text="*URL*"),
+                    SlackTextObject(type="mrkdwn", text="<https://example.com>"),
+                    SlackTextObject(type="mrkdwn", text="*Author*"),
+                    SlackTextObject(type="plain_text", text="test_author"),
+                    SlackTextObject(type="mrkdwn", text="*Category*"),
+                    SlackTextObject(type="plain_text", text="テスト / サブカテゴリ"),
+                    SlackTextObject(type="mrkdwn", text="*Published*"),
+                    SlackTextObject(type="plain_text", text="2025-01-15T10:30:00Z"),
+                ]),
+            ],
+            summary_text="- ポイント1",
+            summary_blocks=[
+                SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Summary")),
+                SlackRichTextBlock(elements=[
+                    SlackRichTextList(style="bullet", elements=[
+                        SlackRichTextSection(elements=[SlackTextElement(text="ポイント1")]),
+                    ]),
+                ]),
+            ],
+            detail_text="# 詳細\n記事の詳細内容",
+            detail_blocks=[
+                SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Details")),
+                SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text="# 詳細\n記事の詳細内容")),
+            ],
         )
-        assert result.summary_text == "- ポイント1"
-        assert result.detail_text == "# 詳細\n記事の詳細内容"
+        assert result == expected
         # プロンプトが補足URL付きで構築されていること
         assert len(received_prompts) == 1
         expected_prompt = build_summary_prompt(
