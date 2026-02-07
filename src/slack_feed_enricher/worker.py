@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from slack_feed_enricher.claude import fetch_and_summarize
-from slack_feed_enricher.slack import SlackClient, extract_url
+from slack_feed_enricher.slack import SlackClient, extract_urls
 
 logger = logging.getLogger(__name__)
 
@@ -31,27 +31,36 @@ async def send_enriched_messages(
     slack_client: SlackClient,
     channel_id: str,
     thread_ts: str,
-    text: str,
+    texts: list[str],
 ) -> list[str]:
     """
-    要約テキストをSlackスレッドに投稿する。
+    要約テキストをSlackスレッドに順次投稿する。
+
+    投稿順序: メタ情報 → 簡潔な要約 → 詳細
+
+    Args:
+        slack_client: Slackクライアント
+        channel_id: チャンネルID
+        thread_ts: スレッドのタイムスタンプ
+        texts: 投稿するテキストのリスト
 
     Returns:
-        list[str]: 投稿されたメッセージのtsリスト（現時点では要素1つ）
+        list[str]: 投稿されたメッセージのtsリスト
 
     Raises:
-        SlackAPIError: Slack API呼び出しに失敗した場合
-
-    Note:
-        メッセージ分割機能は後段タスクで実装予定。
-        現時点ではpost_thread_replyを1回呼び、要素1つのリストを返す。
+        SlackAPIError: Slack API呼び出しに失敗した場合（途中で発生した場合は即座にraise）
     """
-    reply_ts = await slack_client.post_thread_reply(
-        channel_id=channel_id,
-        thread_ts=thread_ts,
-        text=text,
-    )
-    return [reply_ts]
+    reply_ts_list: list[str] = []
+    for i, text in enumerate(texts):
+        if i > 0:
+            await asyncio.sleep(1.0)
+        reply_ts = await slack_client.post_thread_reply(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            text=text,
+        )
+        reply_ts_list.append(reply_ts)
+    return reply_ts_list
 
 
 async def enrich_and_reply_pending_messages(
@@ -100,17 +109,17 @@ async def enrich_and_reply_pending_messages(
                 )
 
         try:
-            url = extract_url(message)
-            if url is None:
+            extracted = extract_urls(message)
+            if extracted.main_url is None:
                 skipped_count += 1
                 continue
 
-            summary = await fetch_and_summarize(query_func, url)
+            blocks = await fetch_and_summarize(query_func, extracted.main_url, extracted.supplementary_urls)
             await send_enriched_messages(
                 slack_client=slack_client,
                 channel_id=channel_id,
                 thread_ts=message.ts,
-                text=summary,
+                texts=blocks,
             )
             success_count += 1
         except Exception as e:
