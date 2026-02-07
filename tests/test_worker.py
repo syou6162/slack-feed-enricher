@@ -44,7 +44,7 @@ SAMPLE_ENRICH_RESULT = EnrichResult(
     summary_blocks=build_summary_blocks(_SAMPLE_SUMMARY),
     summary_text="- ポイント1",
     detail_blocks=build_detail_blocks("# 詳細\n記事の詳細内容"),
-    detail_text="# 詳細\n記事の詳細内容",
+    detail_text="*詳細*\n記事の詳細内容",
 )
 
 
