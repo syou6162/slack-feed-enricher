@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from slack_feed_enricher.claude import fetch_and_summarize
+from slack_feed_enricher.claude.summarizer import EnrichResult
 from slack_feed_enricher.slack import SlackClient, extract_urls
 
 logger = logging.getLogger(__name__)
@@ -31,18 +32,21 @@ async def send_enriched_messages(
     slack_client: SlackClient,
     channel_id: str,
     thread_ts: str,
-    texts: list[str],
+    result: EnrichResult,
 ) -> list[str]:
     """
-    要約テキストをSlackスレッドに順次投稿する。
+    EnrichResultをSlackスレッドに3通のメッセージとして投稿する。
 
-    投稿順序: メタ情報 → 簡潔な要約 → 詳細
+    投稿順序:
+    1. メタ情報（Block Kit + フォールバックtext）
+    2. 簡潔な要約（Block Kit + フォールバックtext）
+    3. 詳細（Block Kit + フォールバックtext）
 
     Args:
         slack_client: Slackクライアント
         channel_id: チャンネルID
         thread_ts: スレッドのタイムスタンプ
-        texts: 投稿するテキストのリスト
+        result: EnrichResult（Block Kit形式のブロックとフォールバックテキスト）
 
     Returns:
         list[str]: 投稿されたメッセージのtsリスト
@@ -50,17 +54,35 @@ async def send_enriched_messages(
     Raises:
         SlackAPIError: Slack API呼び出しに失敗した場合（途中で発生した場合は即座にraise）
     """
-    reply_ts_list: list[str] = []
-    for i, text in enumerate(texts):
-        if i > 0:
-            await asyncio.sleep(1.0)
-        reply_ts = await slack_client.post_thread_reply(
-            channel_id=channel_id,
-            thread_ts=thread_ts,
-            text=text,
-        )
-        reply_ts_list.append(reply_ts)
-    return reply_ts_list
+    # 1通目: meta（blocks + text）
+    ts_meta = await slack_client.post_thread_reply(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        text=result.meta_text,
+        blocks=result.meta_blocks,
+    )
+
+    await asyncio.sleep(1.0)
+
+    # 2通目: summary（blocks + text）
+    ts_summary = await slack_client.post_thread_reply(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        text=result.summary_text,
+        blocks=result.summary_blocks,
+    )
+
+    await asyncio.sleep(1.0)
+
+    # 3通目: detail（blocks + text）
+    ts_detail = await slack_client.post_thread_reply(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        text=result.detail_text,
+        blocks=result.detail_blocks,
+    )
+
+    return [ts_meta, ts_summary, ts_detail]
 
 
 async def enrich_and_reply_pending_messages(
@@ -114,12 +136,14 @@ async def enrich_and_reply_pending_messages(
                 skipped_count += 1
                 continue
 
-            blocks = await fetch_and_summarize(query_func, extracted.main_url, extracted.supplementary_urls)
+            enrich_result = await fetch_and_summarize(
+                query_func, extracted.main_url, extracted.supplementary_urls
+            )
             await send_enriched_messages(
                 slack_client=slack_client,
                 channel_id=channel_id,
                 thread_ts=message.ts,
-                texts=blocks,
+                result=enrich_result,
             )
             success_count += 1
         except Exception as e:
