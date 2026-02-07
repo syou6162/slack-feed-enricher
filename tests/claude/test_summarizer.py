@@ -254,6 +254,44 @@ class TestFormatMetaBlock:
             "投稿日時: 2025-01-15T10:30:00Z"
         )
 
+    def test_category_medium_only(self) -> None:
+        """category_largeがnullでcategory_mediumのみの場合、mediumのみ表示"""
+        meta = {
+            "title": "BigQuery入門",
+            "url": "https://example.com/bq",
+            "author": "taro",
+            "category_large": None,
+            "category_medium": "BigQuery",
+            "published_at": "2025-01-15T10:30:00Z",
+        }
+        result = format_meta_block(meta)
+        assert result == (
+            "*BigQuery入門*\n"
+            "URL: https://example.com/bq\n"
+            "著者: taro\n"
+            "カテゴリー: BigQuery\n"
+            "投稿日時: 2025-01-15T10:30:00Z"
+        )
+
+    def test_category_large_only(self) -> None:
+        """category_mediumがnullでcategory_largeのみの場合、largeのみ表示"""
+        meta = {
+            "title": "データ基盤の話",
+            "url": "https://example.com/data",
+            "author": "taro",
+            "category_large": "データエンジニアリング",
+            "category_medium": None,
+            "published_at": "2025-01-15T10:30:00Z",
+        }
+        result = format_meta_block(meta)
+        assert result == (
+            "*データ基盤の話*\n"
+            "URL: https://example.com/data\n"
+            "著者: taro\n"
+            "カテゴリー: データエンジニアリング\n"
+            "投稿日時: 2025-01-15T10:30:00Z"
+        )
+
     def test_null_fields(self) -> None:
         """nullフィールドの扱い（著者不明、カテゴリー不明、投稿日時不明）"""
         meta = {

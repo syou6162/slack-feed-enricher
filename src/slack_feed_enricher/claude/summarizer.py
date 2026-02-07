@@ -124,6 +124,8 @@ def format_meta_block(meta: dict[str, Any]) -> str:
         lines.append(f"カテゴリー: {category_large} / {category_medium}")
     elif category_large:
         lines.append(f"カテゴリー: {category_large}")
+    elif category_medium:
+        lines.append(f"カテゴリー: {category_medium}")
     else:
         lines.append("カテゴリー: 不明")
 
