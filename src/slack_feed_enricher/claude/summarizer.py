@@ -12,7 +12,16 @@ from slack_feed_enricher.claude.exceptions import (
     NoResultMessageError,
     StructuredOutputError,
 )
-from slack_feed_enricher.slack.blocks import SlackBlock, SlackHeaderBlock, SlackSectionBlock, SlackTextObject
+from slack_feed_enricher.slack.blocks import (
+    SlackBlock,
+    SlackHeaderBlock,
+    SlackRichTextBlock,
+    SlackRichTextList,
+    SlackRichTextSection,
+    SlackSectionBlock,
+    SlackTextElement,
+    SlackTextObject,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -146,18 +155,23 @@ def build_meta_blocks(meta: Meta) -> list[SlackBlock]:
 def build_summary_blocks(summary: Summary) -> list[SlackBlock]:
     """SummaryモデルからSlack Block Kitブロック配列を生成する
 
-    SlackHeaderBlockで「Summary」タイトルを表示し、各pointを箇条書き（•）で表示する。
+    SlackHeaderBlockで「Summary」タイトルを表示し、rich_text_listでネイティブ箇条書きを表示する。
 
     Args:
         summary: Summaryモデルインスタンス
 
     Returns:
-        SlackBlockのリスト（headerブロック + sectionブロック）
+        SlackBlockのリスト（headerブロック + rich_textブロック）
     """
     header_block = SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Summary"))
-    points_text = "\n".join(f"- {point}" for point in summary.points)
-    points_section = SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=points_text))
-    return [header_block, points_section]
+    list_items = [
+        SlackRichTextSection(elements=[SlackTextElement(text=point)])
+        for point in summary.points
+    ]
+    rich_text_block = SlackRichTextBlock(
+        elements=[SlackRichTextList(style="bullet", elements=list_items)]
+    )
+    return [header_block, rich_text_block]
 
 
 def build_detail_blocks(detail: str) -> list[SlackBlock]:
