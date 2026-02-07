@@ -7,7 +7,12 @@ import pytest
 from claude_agent_sdk import ResultMessage
 
 from slack_feed_enricher.claude.exceptions import ClaudeAPIError, StructuredOutputError
-from slack_feed_enricher.claude.summarizer import build_summary_prompt, fetch_and_summarize
+from slack_feed_enricher.claude.summarizer import (
+    build_summary_prompt,
+    fetch_and_summarize,
+    format_meta_block,
+    format_summary_block,
+)
 
 
 class TestFetchAndSummarize:
@@ -103,3 +108,67 @@ class TestBuildSummaryPrompt:
         prompt = build_summary_prompt("https://example.com/article", supplementary_urls=None)
         assert "https://example.com/article" in prompt
         assert "補足URL" not in prompt
+
+
+class TestFormatMetaBlock:
+    """format_meta_block関数のテスト"""
+
+    def test_all_fields_present(self) -> None:
+        """全フィールドが埋まっている場合の出力"""
+        meta = {
+            "title": "BigQueryの最適化テクニック",
+            "url": "https://example.com/article",
+            "author": "yamada_taro",
+            "category_large": "データエンジニアリング",
+            "category_medium": "BigQuery",
+            "published_at": "2025-01-15T10:30:00Z",
+        }
+        result = format_meta_block(meta)
+        assert "BigQueryの最適化テクニック" in result
+        assert "https://example.com/article" in result
+        assert "yamada_taro" in result
+        assert "データエンジニアリング" in result
+        assert "BigQuery" in result
+        assert "2025-01-15T10:30:00Z" in result
+
+    def test_null_fields(self) -> None:
+        """nullフィールドの扱い（著者不明、カテゴリー不明、投稿日時不明）"""
+        meta = {
+            "title": "無名の記事",
+            "url": "https://example.com/anonymous",
+            "author": None,
+            "category_large": None,
+            "category_medium": None,
+            "published_at": None,
+        }
+        result = format_meta_block(meta)
+        assert "無名の記事" in result
+        assert "https://example.com/anonymous" in result
+        assert "不明" in result
+
+
+class TestFormatSummaryBlock:
+    """format_summary_block関数のテスト"""
+
+    def test_multiple_points(self) -> None:
+        """複数ポイントの箇条書き出力"""
+        summary = {
+            "points": [
+                "BigQueryのパーティショニングの活用方法",
+                "クエリコストの削減テクニック",
+                "マテリアライズドビューの効果的な使い方",
+            ]
+        }
+        result = format_summary_block(summary)
+        assert "BigQueryのパーティショニングの活用方法" in result
+        assert "クエリコストの削減テクニック" in result
+        assert "マテリアライズドビューの効果的な使い方" in result
+        # 箇条書き形式であること
+        assert result.count("- ") >= 3
+
+    def test_single_point(self) -> None:
+        """1ポイントのみの場合"""
+        summary = {"points": ["唯一のポイント"]}
+        result = format_summary_block(summary)
+        assert "唯一のポイント" in result
+        assert "- " in result
