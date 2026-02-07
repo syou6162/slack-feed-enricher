@@ -572,6 +572,38 @@ class TestBuildMetaBlocks:
         fields_block = blocks[1]
         assert SlackTextObject(type="plain_text", text="BigQuery") in fields_block.fields
 
+    def test_title_truncated_at_150_chars(self) -> None:
+        """150文字を超えるタイトルがトリミングされること"""
+        long_title = "あ" * 200
+        meta = Meta(
+            title=long_title,
+            url="https://example.com",
+            author=None,
+            category_large=None,
+            category_medium=None,
+            published_at=None,
+        )
+        blocks = build_meta_blocks(meta)
+        header_block = blocks[0]
+        assert isinstance(header_block, SlackHeaderBlock)
+        assert header_block.text.text == "あ" * 150
+        assert len(header_block.text.text) == 150
+
+    def test_title_exactly_150_chars_not_truncated(self) -> None:
+        """ちょうど150文字のタイトルはトリミングされないこと"""
+        title_150 = "あ" * 150
+        meta = Meta(
+            title=title_150,
+            url="https://example.com",
+            author=None,
+            category_large=None,
+            category_medium=None,
+            published_at=None,
+        )
+        blocks = build_meta_blocks(meta)
+        header_block = blocks[0]
+        assert header_block.text.text == title_150
+
 
 class TestBuildSummaryBlocks:
     """build_summary_blocks関数のテスト"""
@@ -645,3 +677,28 @@ class TestBuildDetailBlocks:
             type="mrkdwn",
             text="# 詳細\n記事の詳細内容",
         )
+
+    def test_detail_over_3000_chars_split_into_multiple_sections(self) -> None:
+        """3000文字を超えるdetailが複数sectionに分割されること"""
+        detail = "あ" * 7000
+        blocks = build_detail_blocks(detail)
+
+        # header + 3 sections (3000 + 3000 + 1000)
+        assert len(blocks) == 4
+        assert isinstance(blocks[0], SlackHeaderBlock)
+        assert isinstance(blocks[1], SlackSectionBlock)
+        assert isinstance(blocks[2], SlackSectionBlock)
+        assert isinstance(blocks[3], SlackSectionBlock)
+        assert len(blocks[1].text.text) == 3000
+        assert len(blocks[2].text.text) == 3000
+        assert len(blocks[3].text.text) == 1000
+
+    def test_detail_exactly_3000_chars_single_section(self) -> None:
+        """ちょうど3000文字のdetailは分割されないこと"""
+        detail = "あ" * 3000
+        blocks = build_detail_blocks(detail)
+
+        assert len(blocks) == 2
+        assert isinstance(blocks[0], SlackHeaderBlock)
+        assert isinstance(blocks[1], SlackSectionBlock)
+        assert len(blocks[1].text.text) == 3000

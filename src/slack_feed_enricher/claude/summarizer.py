@@ -116,7 +116,9 @@ def build_meta_blocks(meta: Meta) -> list[SlackBlock]:
     Returns:
         SlackBlockのリスト（headerブロック + fields section）
     """
-    header_block = SlackHeaderBlock(text=SlackTextObject(type="plain_text", text=meta.title))
+    # Slackのheaderブロックは最大150文字
+    truncated_title = meta.title[:150] if len(meta.title) > 150 else meta.title
+    header_block = SlackHeaderBlock(text=SlackTextObject(type="plain_text", text=truncated_title))
 
     fields: list[SlackTextObject] = [
         SlackTextObject(type="mrkdwn", text="*URL*"),
@@ -178,16 +180,28 @@ def build_detail_blocks(detail: str) -> list[SlackBlock]:
     """detail文字列からSlack Block Kitブロック配列を生成する
 
     SlackHeaderBlockで「Details」タイトルを表示し、detailテキストをsectionブロックで表示する。
+    3000文字を超える場合は複数sectionに分割する。
 
     Args:
         detail: 詳細テキスト（markdown形式）
 
     Returns:
-        SlackBlockのリスト（headerブロック + sectionブロック）
+        SlackBlockのリスト（headerブロック + 1つ以上のsectionブロック）
     """
     header_block = SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Details"))
-    detail_section = SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=detail))
-    return [header_block, detail_section]
+
+    # Slackのsectionブロックtextは最大3000文字
+    max_section_text_length = 3000
+
+    if len(detail) <= max_section_text_length:
+        return [header_block, SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=detail))]
+
+    sections: list[SlackBlock] = [header_block]
+    for i in range(0, len(detail), max_section_text_length):
+        chunk = detail[i:i + max_section_text_length]
+        sections.append(SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=chunk)))
+
+    return sections
 
 
 def format_meta_block(meta: dict[str, Any]) -> str:
