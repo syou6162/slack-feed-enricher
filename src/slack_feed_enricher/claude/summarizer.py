@@ -22,6 +22,7 @@ from slack_feed_enricher.slack.blocks import (
     SlackTextElement,
     SlackTextObject,
 )
+from slack_feed_enricher.slack.markdown_converter import convert_markdown_to_mrkdwn
 
 logger = logging.getLogger(__name__)
 
@@ -176,11 +177,80 @@ def build_summary_blocks(summary: Summary) -> list[SlackBlock]:
     return [header_block, rich_text_block]
 
 
+def _split_mrkdwn_text(text: str, max_length: int = 3000) -> list[str]:
+    """mrkdwnテキストを構文を壊さないように分割する。
+
+    改行位置での分割を優先し、改行のない長文は文字数ベースで強制分割する。
+    &amp;/&lt;/&gt;エンティティの途中では分割しない。
+
+    Args:
+        text: 分割対象テキスト
+        max_length: 1チャンクの最大文字数
+
+    Returns:
+        分割されたテキストのリスト
+    """
+    if len(text) <= max_length:
+        return [text]
+
+    chunks: list[str] = []
+    remaining = text
+
+    while remaining:
+        if len(remaining) <= max_length:
+            chunks.append(remaining)
+            break
+
+        # 改行位置での分割を試みる（max_length以内の最後の改行）
+        newline_pos = remaining.rfind("\n", 0, max_length)
+        if newline_pos > 0:
+            chunks.append(remaining[:newline_pos])
+            remaining = remaining[newline_pos + 1:]  # 改行自体はスキップ
+            continue
+
+        # 改行がない場合は文字数ベースで強制分割
+        split_pos = max_length
+        # エンティティ(&amp; &lt; &gt;)の途中で分割しないよう調整
+        split_pos = _adjust_for_entity_boundary(remaining, split_pos)
+        chunks.append(remaining[:split_pos])
+        remaining = remaining[split_pos:]
+
+    return chunks
+
+
+def _adjust_for_entity_boundary(text: str, pos: int) -> int:
+    """エンティティ(&amp; &lt; &gt;)の途中で分割しないよう位置を調整する。
+
+    Args:
+        text: テキスト
+        pos: 分割候補位置
+
+    Returns:
+        調整後の分割位置
+    """
+    # pos付近で&が始まるエンティティをチェック
+    # 最大エンティティ長は &amp; の5文字
+    for offset in range(5):
+        check_pos = pos - offset
+        if check_pos < 0:
+            break
+        if text[check_pos] == "&":
+            # この&から始まるエンティティがposをまたぐかチェック
+            for entity in ("&amp;", "&lt;", "&gt;"):
+                if text[check_pos:check_pos + len(entity)] == entity:
+                    entity_end = check_pos + len(entity)
+                    if entity_end > pos:
+                        # エンティティの前で分割
+                        return check_pos
+    return pos
+
+
 def build_detail_blocks(detail: str) -> list[SlackBlock]:
     """detail文字列からSlack Block Kitブロック配列を生成する
 
-    SlackHeaderBlockで「Details」タイトルを表示し、detailテキストをsectionブロックで表示する。
-    3000文字を超える場合は複数sectionに分割する。
+    SlackHeaderBlockで「Details」タイトルを表示し、Markdown→mrkdwn変換後の
+    detailテキストをsectionブロックで表示する。
+    3000文字を超える場合は改行位置を優先して複数sectionに分割する。
 
     Args:
         detail: 詳細テキスト（markdown形式）
@@ -190,15 +260,14 @@ def build_detail_blocks(detail: str) -> list[SlackBlock]:
     """
     header_block = SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Details"))
 
-    # Slackのsectionブロックtextは最大3000文字
-    max_section_text_length = 3000
+    # Markdown→Slack mrkdwn変換
+    converted = convert_markdown_to_mrkdwn(detail)
 
-    if len(detail) <= max_section_text_length:
-        return [header_block, SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=detail))]
+    # 3000文字以下ならそのまま
+    chunks = _split_mrkdwn_text(converted)
 
     sections: list[SlackBlock] = [header_block]
-    for i in range(0, len(detail), max_section_text_length):
-        chunk = detail[i:i + max_section_text_length]
+    for chunk in chunks:
         sections.append(SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=chunk)))
 
     return sections
