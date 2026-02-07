@@ -98,29 +98,40 @@ def build_summary_prompt(url: str, supplementary_urls: list[str] | None = None) 
 def build_meta_blocks(meta: Meta) -> list[SlackBlock]:
     """MetaモデルからSlack Block Kitブロック配列を生成する
 
-    構造化データの意味を活かすため、titleはsectionブロックのtextで大きく表示し、
-    メタデータ属性はfieldsで2列表示する。
+    titleをSlackHeaderBlockで表示（summary/detailと統一）し、
+    メタデータ属性はfieldsで2列表示する。URLは必須フィールドとして常に含む。
 
     Args:
         meta: Metaモデルインスタンス
 
     Returns:
-        SlackBlockのリスト（title section + 条件付きfields section）
+        SlackBlockのリスト（headerブロック + fields section）
     """
-    title_section = SlackSectionBlock(
-        text=SlackTextObject(type="mrkdwn", text=f"*{meta.title}*")
-    )
+    header_block = SlackHeaderBlock(text=SlackTextObject(type="plain_text", text=meta.title))
 
-    fields: list[SlackTextObject] = []
+    fields: list[SlackTextObject] = [
+        SlackTextObject(type="mrkdwn", text="*URL*"),
+        SlackTextObject(type="mrkdwn", text=f"<{meta.url}>"),
+    ]
     if meta.author:
         fields.extend([
             SlackTextObject(type="mrkdwn", text="*Author*"),
             SlackTextObject(type="plain_text", text=meta.author),
         ])
-    if meta.category_large:
+    if meta.category_large and meta.category_medium:
+        fields.extend([
+            SlackTextObject(type="mrkdwn", text="*Category*"),
+            SlackTextObject(type="plain_text", text=f"{meta.category_large} / {meta.category_medium}"),
+        ])
+    elif meta.category_large:
         fields.extend([
             SlackTextObject(type="mrkdwn", text="*Category*"),
             SlackTextObject(type="plain_text", text=meta.category_large),
+        ])
+    elif meta.category_medium:
+        fields.extend([
+            SlackTextObject(type="mrkdwn", text="*Category*"),
+            SlackTextObject(type="plain_text", text=meta.category_medium),
         ])
     if meta.published_at:
         fields.extend([
@@ -128,10 +139,8 @@ def build_meta_blocks(meta: Meta) -> list[SlackBlock]:
             SlackTextObject(type="plain_text", text=meta.published_at),
         ])
 
-    if fields:
-        metadata_section = SlackSectionBlock(fields=fields)
-        return [title_section, metadata_section]
-    return [title_section]
+    metadata_section = SlackSectionBlock(fields=fields)
+    return [header_block, metadata_section]
 
 
 def build_summary_blocks(summary: Summary) -> list[SlackBlock]:

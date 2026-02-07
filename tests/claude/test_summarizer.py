@@ -122,7 +122,7 @@ class TestFetchAndSummarize:
         assert result.summary_text == "- ポイント1\n- ポイント2"
         assert result.detail_text == "# 詳細\n記事の詳細内容"
         assert len(result.meta_blocks) == 2
-        assert isinstance(result.meta_blocks[0], SlackSectionBlock)
+        assert isinstance(result.meta_blocks[0], SlackHeaderBlock)
         assert isinstance(result.meta_blocks[1], SlackSectionBlock)
         assert len(result.summary_blocks) == 2
         assert isinstance(result.summary_blocks[0], SlackHeaderBlock)
@@ -437,7 +437,7 @@ class TestBuildMetaBlocks:
     """build_meta_blocks関数のテスト"""
 
     def test_all_fields_present(self) -> None:
-        """全フィールドが揃ったMetaモデルからtitle section + fields sectionの2ブロックが生成されること"""
+        """全フィールドが揃ったMetaモデルからheaderブロック + fields sectionの2ブロックが生成されること"""
         meta = Meta(
             title="BigQueryの最適化テクニック",
             url="https://example.com/article",
@@ -450,29 +450,30 @@ class TestBuildMetaBlocks:
 
         assert len(blocks) == 2
 
-        # 1ブロック目: title section
-        title_block = blocks[0]
-        assert isinstance(title_block, SlackSectionBlock)
-        assert title_block.text == SlackTextObject(type="mrkdwn", text="*BigQueryの最適化テクニック*")
-        assert title_block.fields is None
+        # 1ブロック目: headerブロック（title）
+        header_block = blocks[0]
+        assert isinstance(header_block, SlackHeaderBlock)
+        assert header_block.text == SlackTextObject(type="plain_text", text="BigQueryの最適化テクニック")
 
-        # 2ブロック目: fields section（author, category, published_at）
+        # 2ブロック目: fields section（URL, author, category large/medium結合, published_at）
         fields_block = blocks[1]
         assert isinstance(fields_block, SlackSectionBlock)
         assert fields_block.text is None
         assert fields_block.fields is not None
-        assert len(fields_block.fields) == 6  # 3属性 × 2（ラベル+値）
+        assert len(fields_block.fields) == 8  # 4属性 × 2（ラベル+値）
         assert fields_block.fields == [
+            SlackTextObject(type="mrkdwn", text="*URL*"),
+            SlackTextObject(type="mrkdwn", text="<https://example.com/article>"),
             SlackTextObject(type="mrkdwn", text="*Author*"),
             SlackTextObject(type="plain_text", text="yamada_taro"),
             SlackTextObject(type="mrkdwn", text="*Category*"),
-            SlackTextObject(type="plain_text", text="データエンジニアリング"),
+            SlackTextObject(type="plain_text", text="データエンジニアリング / BigQuery"),
             SlackTextObject(type="mrkdwn", text="*Published*"),
             SlackTextObject(type="plain_text", text="2025-01-15T10:30:00Z"),
         ]
 
     def test_all_optional_fields_none(self) -> None:
-        """全Optionalフィールドがnullの場合、title sectionのみの1ブロックが生成されること"""
+        """全Optionalフィールドがnullの場合、headerブロック + URLのみのfields sectionの2ブロックが生成されること"""
         meta = Meta(
             title="無名の記事",
             url="https://example.com/anonymous",
@@ -483,12 +484,20 @@ class TestBuildMetaBlocks:
         )
         blocks = build_meta_blocks(meta)
 
-        assert len(blocks) == 1
-        assert blocks[0].text == SlackTextObject(type="mrkdwn", text="*無名の記事*")
-        assert blocks[0].fields is None
+        assert len(blocks) == 2
+        assert isinstance(blocks[0], SlackHeaderBlock)
+        assert blocks[0].text == SlackTextObject(type="plain_text", text="無名の記事")
+        fields_block = blocks[1]
+        assert isinstance(fields_block, SlackSectionBlock)
+        assert fields_block.fields is not None
+        assert len(fields_block.fields) == 2  # URLのみ
+        assert fields_block.fields == [
+            SlackTextObject(type="mrkdwn", text="*URL*"),
+            SlackTextObject(type="mrkdwn", text="<https://example.com/anonymous>"),
+        ]
 
     def test_partial_optional_fields(self) -> None:
-        """一部のOptionalフィールドのみがある場合、存在する項目のみがfieldsに含まれること"""
+        """一部のOptionalフィールドのみがある場合、URL + 存在する項目のみがfieldsに含まれること"""
         meta = Meta(
             title="著者ありカテゴリなし",
             url="https://example.com/partial",
@@ -503,13 +512,57 @@ class TestBuildMetaBlocks:
 
         fields_block = blocks[1]
         assert fields_block.fields is not None
-        assert len(fields_block.fields) == 4  # 2属性 × 2（ラベル+値）
+        assert len(fields_block.fields) == 6  # 3属性（URL, author, published_at） × 2
         assert fields_block.fields == [
+            SlackTextObject(type="mrkdwn", text="*URL*"),
+            SlackTextObject(type="mrkdwn", text="<https://example.com/partial>"),
             SlackTextObject(type="mrkdwn", text="*Author*"),
             SlackTextObject(type="plain_text", text="taro"),
             SlackTextObject(type="mrkdwn", text="*Published*"),
             SlackTextObject(type="plain_text", text="2025-01-15T10:30:00Z"),
         ]
+
+    def test_category_large_and_medium(self) -> None:
+        """category_largeとcategory_mediumが両方ある場合、結合表示されること"""
+        meta = Meta(
+            title="テスト",
+            url="https://example.com",
+            author=None,
+            category_large="データエンジニアリング",
+            category_medium="BigQuery",
+            published_at=None,
+        )
+        blocks = build_meta_blocks(meta)
+        fields_block = blocks[1]
+        assert SlackTextObject(type="plain_text", text="データエンジニアリング / BigQuery") in fields_block.fields
+
+    def test_category_large_only(self) -> None:
+        """category_largeのみの場合、largeのみが表示されること"""
+        meta = Meta(
+            title="テスト",
+            url="https://example.com",
+            author=None,
+            category_large="データエンジニアリング",
+            category_medium=None,
+            published_at=None,
+        )
+        blocks = build_meta_blocks(meta)
+        fields_block = blocks[1]
+        assert SlackTextObject(type="plain_text", text="データエンジニアリング") in fields_block.fields
+
+    def test_category_medium_only(self) -> None:
+        """category_mediumのみの場合、mediumのみが表示されること"""
+        meta = Meta(
+            title="テスト",
+            url="https://example.com",
+            author=None,
+            category_large=None,
+            category_medium="BigQuery",
+            published_at=None,
+        )
+        blocks = build_meta_blocks(meta)
+        fields_block = blocks[1]
+        assert SlackTextObject(type="plain_text", text="BigQuery") in fields_block.fields
 
 
 class TestBuildSummaryBlocks:
