@@ -196,28 +196,7 @@ class TestBuildSummaryPrompt:
         expected = (
             "以下のURLの内容をすべてWebFetchで取得してください。\n"
             "\n"
-            "メインURL（記事本体）: https://example.com/article\n"
-            "\n"
-            "取得した内容をもとに、以下のJSON形式で出力してください：\n"
-            "\n"
-            "{\n"
-            '  "meta": {\n'
-            '    "title": "記事のタイトル",\n'
-            '    "url": "記事のURL",\n'
-            '    "author": "著者名（はてなID、Twitter/X ID、本名など。取得できない場合はnull）",\n'
-            '    "category_large": "大カテゴリー（例: データエンジニアリング。判定できない場合はnull）",\n'
-            '    "category_medium": "中カテゴリー（例: BigQuery。判定できない場合はnull）",\n'
-            '    "published_at": "投稿日時（ISO 8601形式。取得できない場合はnull）"\n'
-            "  },\n"
-            '  "summary": {\n'
-            '    "points": ["箇条書きポイント1", "ポイント2", ...]  // 記事の核心を簡潔にまとめる。最大5項目\n'
-            "  },\n"
-            '  "detail": "記事内容を構造化した詳細説明（markdown形式）"\n'
-            "}\n"
-            "\n"
-            "注意事項:\n"
-            "- detailは要約ではなく、記事の内容を網羅的に記述してください\n"
-            "- ただし、Slack APIのメッセージ長制限（40,000文字）を考慮し、適度な長さに収めてください"
+            "メインURL（記事本体）: https://example.com/article"
         )
         assert prompt == expected
 
@@ -237,28 +216,7 @@ class TestBuildSummaryPrompt:
             "- https://ref.example.com\n"
             "\n"
             "メインURLが主たる情報源です。補足URLは記事内で言及されているツールや"
-            "引用元の詳細情報なので、要約に適宜取り込んでください。\n"
-            "\n"
-            "取得した内容をもとに、以下のJSON形式で出力してください：\n"
-            "\n"
-            "{\n"
-            '  "meta": {\n'
-            '    "title": "記事のタイトル",\n'
-            '    "url": "記事のURL",\n'
-            '    "author": "著者名（はてなID、Twitter/X ID、本名など。取得できない場合はnull）",\n'
-            '    "category_large": "大カテゴリー（例: データエンジニアリング。判定できない場合はnull）",\n'
-            '    "category_medium": "中カテゴリー（例: BigQuery。判定できない場合はnull）",\n'
-            '    "published_at": "投稿日時（ISO 8601形式。取得できない場合はnull）"\n'
-            "  },\n"
-            '  "summary": {\n'
-            '    "points": ["箇条書きポイント1", "ポイント2", ...]  // 記事の核心を簡潔にまとめる。最大5項目\n'
-            "  },\n"
-            '  "detail": "記事内容を構造化した詳細説明（markdown形式）"\n'
-            "}\n"
-            "\n"
-            "注意事項:\n"
-            "- detailは要約ではなく、記事の内容を網羅的に記述してください\n"
-            "- ただし、Slack APIのメッセージ長制限（40,000文字）を考慮し、適度な長さに収めてください"
+            "引用元の詳細情報なので、要約に適宜取り込んでください。"
         )
         assert prompt == expected
 
