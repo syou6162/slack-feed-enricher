@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from slack_feed_enricher.claude.exceptions import (
     ClaudeAPIError,
@@ -37,6 +37,14 @@ class StructuredOutput(BaseModel):
     meta: Meta
     summary: Summary
     detail: str
+
+
+class EnrichResult(BaseModel, frozen=True):
+    meta_blocks: list[SlackBlock]
+    meta_text: str
+    summary_blocks: list[SlackBlock]
+    summary_text: str
+    detail_text: str
 
 
 # 構造化出力スキーマ
@@ -158,8 +166,8 @@ async def fetch_and_summarize(
     query_func: QueryFunc,
     url: str,
     supplementary_urls: list[str] | None = None,
-) -> list[str]:
-    """URLの内容をWebFetchで取得し、3ブロック構造で要約する
+) -> EnrichResult:
+    """URLの内容をWebFetchで取得し、構造化された要約結果を返す
 
     Args:
         query_func: claude_agent_sdk.query関数（またはモック）
@@ -167,7 +175,7 @@ async def fetch_and_summarize(
         supplementary_urls: 補足URL（引用先、ツール説明等）
 
     Returns:
-        3つのブロック文字列のリスト [メタ情報, 簡潔な要約, 詳細]
+        EnrichResult: Block Kit形式のブロックとフォールバックテキストを含む結果
 
     Raises:
         ValueError: URLが空の場合
@@ -209,12 +217,19 @@ async def fetch_and_summarize(
 
     so = result_message.structured_output
 
-    # キー欠損チェック
-    required_keys = ["meta", "summary", "detail"]
-    missing_keys = [key for key in required_keys if key not in so]
-    if missing_keys:
-        raise StructuredOutputError(
-            f"構造化出力に必要なキーが欠損しています: {', '.join(missing_keys)}"
-        )
+    # dict→Pydanticモデル変換（ValidationErrorはStructuredOutputErrorに変換）
+    try:
+        parsed = StructuredOutput.model_validate(so)
+    except ValidationError as e:
+        raise StructuredOutputError(f"構造化出力のバリデーションに失敗しました: {e}") from e
 
-    return [format_meta_block(so["meta"]), format_summary_block(so["summary"]), so["detail"]]
+    meta_text = format_meta_block(parsed.meta.model_dump())
+    summary_text = format_summary_block(parsed.summary.model_dump())
+
+    return EnrichResult(
+        meta_blocks=build_meta_blocks(parsed.meta),
+        meta_text=meta_text,
+        summary_blocks=build_summary_blocks(parsed.summary),
+        summary_text=summary_text,
+        detail_text=parsed.detail,
+    )

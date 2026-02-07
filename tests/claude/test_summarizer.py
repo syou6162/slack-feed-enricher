@@ -8,6 +8,7 @@ from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
 
 from slack_feed_enricher.claude.exceptions import ClaudeAPIError, StructuredOutputError
 from slack_feed_enricher.claude.summarizer import (
+    EnrichResult,
     Meta,
     StructuredOutput,
     Summary,
@@ -92,8 +93,8 @@ class TestFetchAndSummarize:
             await fetch_and_summarize(mock_query, "")
 
     @pytest.mark.asyncio
-    async def test_returns_three_blocks_for_single_url(self) -> None:
-        """単一URLで3ブロックのリストが返ること"""
+    async def test_returns_enrich_result_for_single_url(self) -> None:
+        """単一URLでEnrichResultが返ること"""
         mock_result = AsyncMock(spec=ResultMessage)
         mock_result.is_error = False
         mock_result.structured_output = {
@@ -115,15 +116,21 @@ class TestFetchAndSummarize:
 
         result = await fetch_and_summarize(mock_query, "https://example.com")
 
-        assert result == [
-            "*テスト記事*\nURL: https://example.com\n著者: test_author\nカテゴリー: テスト / サブカテゴリ\n投稿日時: 2025-01-15T10:30:00Z",
-            "- ポイント1\n- ポイント2",
-            "# 詳細\n記事の詳細内容",
-        ]
+        assert isinstance(result, EnrichResult)
+        assert result.meta_text == (
+            "*テスト記事*\nURL: https://example.com\n著者: test_author\n"
+            "カテゴリー: テスト / サブカテゴリ\n投稿日時: 2025-01-15T10:30:00Z"
+        )
+        assert result.summary_text == "- ポイント1\n- ポイント2"
+        assert result.detail_text == "# 詳細\n記事の詳細内容"
+        assert len(result.meta_blocks) == 1
+        assert isinstance(result.meta_blocks[0], SlackSectionBlock)
+        assert len(result.summary_blocks) == 1
+        assert isinstance(result.summary_blocks[0], SlackSectionBlock)
 
     @pytest.mark.asyncio
-    async def test_returns_three_blocks_with_supplementary_urls(self) -> None:
-        """補足URL付きで3ブロックのリストが返ること"""
+    async def test_returns_enrich_result_with_supplementary_urls(self) -> None:
+        """補足URL付きでEnrichResultが返ること"""
         mock_result = AsyncMock(spec=ResultMessage)
         mock_result.is_error = False
         mock_result.structured_output = {
@@ -152,11 +159,13 @@ class TestFetchAndSummarize:
             supplementary_urls=["https://tool.example.com", "https://ref.example.com"],
         )
 
-        assert result == [
-            "*テスト記事*\nURL: https://example.com\n著者: test_author\nカテゴリー: テスト / サブカテゴリ\n投稿日時: 2025-01-15T10:30:00Z",
-            "- ポイント1",
-            "# 詳細\n記事の詳細内容",
-        ]
+        assert isinstance(result, EnrichResult)
+        assert result.meta_text == (
+            "*テスト記事*\nURL: https://example.com\n著者: test_author\n"
+            "カテゴリー: テスト / サブカテゴリ\n投稿日時: 2025-01-15T10:30:00Z"
+        )
+        assert result.summary_text == "- ポイント1"
+        assert result.detail_text == "# 詳細\n記事の詳細内容"
         # プロンプトが補足URL付きで構築されていること
         assert len(received_prompts) == 1
         expected_prompt = build_summary_prompt(
@@ -208,7 +217,7 @@ class TestFetchAndSummarize:
             """モックquery関数"""
             yield mock_result
 
-        with pytest.raises(StructuredOutputError, match="構造化出力に必要なキーが欠損しています"):
+        with pytest.raises(StructuredOutputError, match="構造化出力のバリデーションに失敗しました"):
             await fetch_and_summarize(mock_query, "https://example.com")
 
     @pytest.mark.asyncio

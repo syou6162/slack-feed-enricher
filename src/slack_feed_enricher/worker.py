@@ -114,12 +114,14 @@ async def enrich_and_reply_pending_messages(
                 skipped_count += 1
                 continue
 
-            blocks = await fetch_and_summarize(query_func, extracted.main_url, extracted.supplementary_urls)
+            enrich_result = await fetch_and_summarize(
+                query_func, extracted.main_url, extracted.supplementary_urls
+            )
             await send_enriched_messages(
                 slack_client=slack_client,
                 channel_id=channel_id,
                 thread_ts=message.ts,
-                texts=blocks,
+                texts=[enrich_result.meta_text, enrich_result.summary_text, enrich_result.detail_text],
             )
             success_count += 1
         except Exception as e:
