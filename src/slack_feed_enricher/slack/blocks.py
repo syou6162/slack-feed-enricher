@@ -12,7 +12,8 @@ class SlackTextObject(BaseModel, frozen=True):
 
 class SlackSectionBlock(BaseModel, frozen=True):
     type: Literal["section"] = "section"
-    text: SlackTextObject
+    text: SlackTextObject | None = None
+    fields: list[SlackTextObject] | None = None
 
 
 class SlackDividerBlock(BaseModel, frozen=True):

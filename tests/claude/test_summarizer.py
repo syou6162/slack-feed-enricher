@@ -120,8 +120,9 @@ class TestFetchAndSummarize:
         )
         assert result.summary_text == "- ポイント1\n- ポイント2"
         assert result.detail_text == "# 詳細\n記事の詳細内容"
-        assert len(result.meta_blocks) == 1
+        assert len(result.meta_blocks) == 2
         assert isinstance(result.meta_blocks[0], SlackSectionBlock)
+        assert isinstance(result.meta_blocks[1], SlackSectionBlock)
         assert len(result.summary_blocks) == 1
         assert isinstance(result.summary_blocks[0], SlackSectionBlock)
 
@@ -430,8 +431,8 @@ class TestFormatSummaryBlock:
 class TestBuildMetaBlocks:
     """build_meta_blocks関数のテスト"""
 
-    def test_returns_section_block_with_mrkdwn(self) -> None:
-        """MetaモデルからsectionブロックのリストがSlack mrkdwn形式で生成されること"""
+    def test_all_fields_present(self) -> None:
+        """全フィールドが揃ったMetaモデルからtitle section + fields sectionの2ブロックが生成されること"""
         meta = Meta(
             title="BigQueryの最適化テクニック",
             url="https://example.com/article",
@@ -442,23 +443,31 @@ class TestBuildMetaBlocks:
         )
         blocks = build_meta_blocks(meta)
 
-        assert len(blocks) == 1
-        block = blocks[0]
-        assert isinstance(block, SlackSectionBlock)
-        assert block.type == "section"
-        assert block.text == SlackTextObject(
-            type="mrkdwn",
-            text=(
-                "*BigQueryの最適化テクニック*\n"
-                "URL: https://example.com/article\n"
-                "著者: yamada_taro\n"
-                "カテゴリー: データエンジニアリング / BigQuery\n"
-                "投稿日時: 2025-01-15T10:30:00Z"
-            ),
-        )
+        assert len(blocks) == 2
 
-    def test_null_fields(self) -> None:
-        """nullフィールドのMetaモデルでも正しくブロックが生成されること"""
+        # 1ブロック目: title section
+        title_block = blocks[0]
+        assert isinstance(title_block, SlackSectionBlock)
+        assert title_block.text == SlackTextObject(type="mrkdwn", text="*BigQueryの最適化テクニック*")
+        assert title_block.fields is None
+
+        # 2ブロック目: fields section（author, category, published_at）
+        fields_block = blocks[1]
+        assert isinstance(fields_block, SlackSectionBlock)
+        assert fields_block.text is None
+        assert fields_block.fields is not None
+        assert len(fields_block.fields) == 6  # 3属性 × 2（ラベル+値）
+        assert fields_block.fields == [
+            SlackTextObject(type="mrkdwn", text="*Author*"),
+            SlackTextObject(type="plain_text", text="yamada_taro"),
+            SlackTextObject(type="mrkdwn", text="*Category*"),
+            SlackTextObject(type="plain_text", text="データエンジニアリング"),
+            SlackTextObject(type="mrkdwn", text="*Published*"),
+            SlackTextObject(type="plain_text", text="2025-01-15T10:30:00Z"),
+        ]
+
+    def test_all_optional_fields_none(self) -> None:
+        """全Optionalフィールドがnullの場合、title sectionのみの1ブロックが生成されること"""
         meta = Meta(
             title="無名の記事",
             url="https://example.com/anonymous",
@@ -470,13 +479,32 @@ class TestBuildMetaBlocks:
         blocks = build_meta_blocks(meta)
 
         assert len(blocks) == 1
-        assert blocks[0].text.text == (
-            "*無名の記事*\n"
-            "URL: https://example.com/anonymous\n"
-            "著者: 不明\n"
-            "カテゴリー: 不明\n"
-            "投稿日時: 不明"
+        assert blocks[0].text == SlackTextObject(type="mrkdwn", text="*無名の記事*")
+        assert blocks[0].fields is None
+
+    def test_partial_optional_fields(self) -> None:
+        """一部のOptionalフィールドのみがある場合、存在する項目のみがfieldsに含まれること"""
+        meta = Meta(
+            title="著者ありカテゴリなし",
+            url="https://example.com/partial",
+            author="taro",
+            category_large=None,
+            category_medium=None,
+            published_at="2025-01-15T10:30:00Z",
         )
+        blocks = build_meta_blocks(meta)
+
+        assert len(blocks) == 2
+
+        fields_block = blocks[1]
+        assert fields_block.fields is not None
+        assert len(fields_block.fields) == 4  # 2属性 × 2（ラベル+値）
+        assert fields_block.fields == [
+            SlackTextObject(type="mrkdwn", text="*Author*"),
+            SlackTextObject(type="plain_text", text="taro"),
+            SlackTextObject(type="mrkdwn", text="*Published*"),
+            SlackTextObject(type="plain_text", text="2025-01-15T10:30:00Z"),
+        ]
 
 
 class TestBuildSummaryBlocks:

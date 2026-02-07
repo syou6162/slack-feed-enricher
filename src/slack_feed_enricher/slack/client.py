@@ -96,7 +96,7 @@ class SlackClient:
                 channel=channel_id,
                 thread_ts=thread_ts,
                 text=text,
-                blocks=[b.model_dump() for b in blocks],
+                blocks=[b.model_dump(exclude_none=True) for b in blocks],
             )
         else:
             response = await self._client.chat_postMessage(

@@ -97,14 +97,40 @@ def build_summary_prompt(url: str, supplementary_urls: list[str] | None = None) 
 def build_meta_blocks(meta: Meta) -> list[SlackBlock]:
     """MetaモデルからSlack Block Kitブロック配列を生成する
 
+    構造化データの意味を活かすため、titleはsectionブロックのtextで大きく表示し、
+    メタデータ属性はfieldsで2列表示する。
+
     Args:
         meta: Metaモデルインスタンス
 
     Returns:
-        SlackBlockのリスト（sectionブロック1つ）
+        SlackBlockのリスト（title section + 条件付きfields section）
     """
-    text = format_meta_block(meta.model_dump())
-    return [SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=text))]
+    title_section = SlackSectionBlock(
+        text=SlackTextObject(type="mrkdwn", text=f"*{meta.title}*")
+    )
+
+    fields: list[SlackTextObject] = []
+    if meta.author:
+        fields.extend([
+            SlackTextObject(type="mrkdwn", text="*Author*"),
+            SlackTextObject(type="plain_text", text=meta.author),
+        ])
+    if meta.category_large:
+        fields.extend([
+            SlackTextObject(type="mrkdwn", text="*Category*"),
+            SlackTextObject(type="plain_text", text=meta.category_large),
+        ])
+    if meta.published_at:
+        fields.extend([
+            SlackTextObject(type="mrkdwn", text="*Published*"),
+            SlackTextObject(type="plain_text", text=meta.published_at),
+        ])
+
+    if fields:
+        metadata_section = SlackSectionBlock(fields=fields)
+        return [title_section, metadata_section]
+    return [title_section]
 
 
 def build_summary_blocks(summary: Summary) -> list[SlackBlock]:
