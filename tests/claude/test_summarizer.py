@@ -12,6 +12,7 @@ from slack_feed_enricher.claude.summarizer import (
     Meta,
     StructuredOutput,
     Summary,
+    build_detail_blocks,
     build_meta_blocks,
     build_summary_blocks,
     build_summary_prompt,
@@ -19,7 +20,7 @@ from slack_feed_enricher.claude.summarizer import (
     format_meta_block,
     format_summary_block,
 )
-from slack_feed_enricher.slack.blocks import SlackSectionBlock, SlackTextObject
+from slack_feed_enricher.slack.blocks import SlackHeaderBlock, SlackSectionBlock, SlackTextObject
 
 
 class TestStructuredOutputSchema:
@@ -123,8 +124,12 @@ class TestFetchAndSummarize:
         assert len(result.meta_blocks) == 2
         assert isinstance(result.meta_blocks[0], SlackSectionBlock)
         assert isinstance(result.meta_blocks[1], SlackSectionBlock)
-        assert len(result.summary_blocks) == 1
-        assert isinstance(result.summary_blocks[0], SlackSectionBlock)
+        assert len(result.summary_blocks) == 2
+        assert isinstance(result.summary_blocks[0], SlackHeaderBlock)
+        assert isinstance(result.summary_blocks[1], SlackSectionBlock)
+        assert len(result.detail_blocks) == 2
+        assert isinstance(result.detail_blocks[0], SlackHeaderBlock)
+        assert isinstance(result.detail_blocks[1], SlackSectionBlock)
 
     @pytest.mark.asyncio
     async def test_returns_enrich_result_with_supplementary_urls(self) -> None:
@@ -511,26 +516,57 @@ class TestBuildSummaryBlocks:
     """build_summary_blocks関数のテスト"""
 
     def test_multiple_points(self) -> None:
-        """複数pointsのSummaryモデルからSummaryヘッダー+箇条書きのsectionブロックが生成されること"""
+        """複数pointsのSummaryモデルからheaderブロック+箇条書きsectionブロックの2ブロックが生成されること"""
         summary = Summary(points=["ポイント1", "ポイント2", "ポイント3"])
         blocks = build_summary_blocks(summary)
 
-        assert len(blocks) == 1
-        block = blocks[0]
-        assert isinstance(block, SlackSectionBlock)
-        assert block.type == "section"
-        assert block.text == SlackTextObject(
+        assert len(blocks) == 2
+
+        # 1ブロック目: headerブロック
+        header_block = blocks[0]
+        assert isinstance(header_block, SlackHeaderBlock)
+        assert header_block.text == SlackTextObject(type="plain_text", text="Summary")
+
+        # 2ブロック目: points sectionブロック
+        points_block = blocks[1]
+        assert isinstance(points_block, SlackSectionBlock)
+        assert points_block.text == SlackTextObject(
             type="mrkdwn",
-            text="*Summary*\n• ポイント1\n• ポイント2\n• ポイント3",
+            text="• ポイント1\n• ポイント2\n• ポイント3",
         )
 
     def test_single_point(self) -> None:
-        """1ポイントのSummaryモデルでも正しくブロックが生成されること"""
+        """1ポイントのSummaryモデルでもheader+sectionの2ブロックが生成されること"""
         summary = Summary(points=["唯一のポイント"])
         blocks = build_summary_blocks(summary)
 
-        assert len(blocks) == 1
-        assert blocks[0].text == SlackTextObject(
+        assert len(blocks) == 2
+        assert isinstance(blocks[0], SlackHeaderBlock)
+        assert blocks[1].text == SlackTextObject(
             type="mrkdwn",
-            text="*Summary*\n• 唯一のポイント",
+            text="• 唯一のポイント",
+        )
+
+
+class TestBuildDetailBlocks:
+    """build_detail_blocks関数のテスト"""
+
+    def test_returns_header_and_section(self) -> None:
+        """detail文字列からheaderブロック（Details）+sectionブロックの2ブロックが生成されること"""
+        detail = "# 詳細\n記事の詳細内容"
+        blocks = build_detail_blocks(detail)
+
+        assert len(blocks) == 2
+
+        # 1ブロック目: headerブロック
+        header_block = blocks[0]
+        assert isinstance(header_block, SlackHeaderBlock)
+        assert header_block.text == SlackTextObject(type="plain_text", text="Details")
+
+        # 2ブロック目: detail sectionブロック
+        detail_block = blocks[1]
+        assert isinstance(detail_block, SlackSectionBlock)
+        assert detail_block.text == SlackTextObject(
+            type="mrkdwn",
+            text="# 詳細\n記事の詳細内容",
         )

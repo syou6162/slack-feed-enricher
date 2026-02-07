@@ -12,7 +12,7 @@ from slack_feed_enricher.claude.exceptions import (
     NoResultMessageError,
     StructuredOutputError,
 )
-from slack_feed_enricher.slack.blocks import SlackBlock, SlackSectionBlock, SlackTextObject
+from slack_feed_enricher.slack.blocks import SlackBlock, SlackHeaderBlock, SlackSectionBlock, SlackTextObject
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,7 @@ class EnrichResult(BaseModel, frozen=True):
     meta_text: str
     summary_blocks: list[SlackBlock]
     summary_text: str
+    detail_blocks: list[SlackBlock]
     detail_text: str
 
 
@@ -136,17 +137,34 @@ def build_meta_blocks(meta: Meta) -> list[SlackBlock]:
 def build_summary_blocks(summary: Summary) -> list[SlackBlock]:
     """SummaryモデルからSlack Block Kitブロック配列を生成する
 
-    summary.pointsの構造を活かし、各pointを箇条書き（•）で表示する。
+    SlackHeaderBlockで「Summary」タイトルを表示し、各pointを箇条書き（•）で表示する。
 
     Args:
         summary: Summaryモデルインスタンス
 
     Returns:
-        SlackBlockのリスト（sectionブロック1つ）
+        SlackBlockのリスト（headerブロック + sectionブロック）
     """
+    header_block = SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Summary"))
     points_text = "\n".join(f"• {point}" for point in summary.points)
-    text = f"*Summary*\n{points_text}"
-    return [SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=text))]
+    points_section = SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=points_text))
+    return [header_block, points_section]
+
+
+def build_detail_blocks(detail: str) -> list[SlackBlock]:
+    """detail文字列からSlack Block Kitブロック配列を生成する
+
+    SlackHeaderBlockで「Details」タイトルを表示し、detailテキストをsectionブロックで表示する。
+
+    Args:
+        detail: 詳細テキスト（markdown形式）
+
+    Returns:
+        SlackBlockのリスト（headerブロック + sectionブロック）
+    """
+    header_block = SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Details"))
+    detail_section = SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=detail))
+    return [header_block, detail_section]
 
 
 def format_meta_block(meta: dict[str, Any]) -> str:
@@ -260,5 +278,6 @@ async def fetch_and_summarize(
         meta_text=meta_text,
         summary_blocks=build_summary_blocks(parsed.summary),
         summary_text=summary_text,
+        detail_blocks=build_detail_blocks(parsed.detail),
         detail_text=parsed.detail,
     )

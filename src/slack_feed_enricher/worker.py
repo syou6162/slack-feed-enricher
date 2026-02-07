@@ -40,7 +40,7 @@ async def send_enriched_messages(
     投稿順序:
     1. メタ情報（Block Kit + フォールバックtext）
     2. 簡潔な要約（Block Kit + フォールバックtext）
-    3. 詳細（textのみ）
+    3. 詳細（Block Kit + フォールバックtext）
 
     Args:
         slack_client: Slackクライアント
@@ -74,11 +74,12 @@ async def send_enriched_messages(
 
     await asyncio.sleep(1.0)
 
-    # 3通目: detail（textのみ）
+    # 3通目: detail（blocks + text）
     ts_detail = await slack_client.post_thread_reply(
         channel_id=channel_id,
         thread_ts=thread_ts,
         text=result.detail_text,
+        blocks=result.detail_blocks,
     )
 
     return [ts_meta, ts_summary, ts_detail]

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 from claude_agent_sdk import ResultMessage
 
-from slack_feed_enricher.claude.summarizer import EnrichResult, Meta, Summary, build_meta_blocks, build_summary_blocks
+from slack_feed_enricher.claude.summarizer import EnrichResult, Meta, Summary, build_detail_blocks, build_meta_blocks, build_summary_blocks
 from slack_feed_enricher.slack import SlackMessage
 from slack_feed_enricher.slack.exceptions import SlackAPIError
 from slack_feed_enricher.worker import QueryFunc, enrich_and_reply_pending_messages, run, send_enriched_messages
@@ -43,6 +43,7 @@ SAMPLE_ENRICH_RESULT = EnrichResult(
     meta_text="*テスト記事*\nURL: https://example.com\n著者: test_author\nカテゴリー: テスト / サブカテゴリ\n投稿日時: 2025-01-15T10:30:00Z",
     summary_blocks=build_summary_blocks(_SAMPLE_SUMMARY),
     summary_text="- ポイント1",
+    detail_blocks=build_detail_blocks("# 詳細\n記事の詳細内容"),
     detail_text="# 詳細\n記事の詳細内容",
 )
 
@@ -96,9 +97,9 @@ async def test_send_enriched_messages_posts_three_messages_with_blocks() -> None
     assert calls[1].kwargs["text"] == SAMPLE_ENRICH_RESULT.summary_text
     assert calls[1].kwargs["blocks"] == SAMPLE_ENRICH_RESULT.summary_blocks
 
-    # 3通目: detail（textのみ、blocksなし）
+    # 3通目: detail（blocks + text）
     assert calls[2].kwargs["text"] == SAMPLE_ENRICH_RESULT.detail_text
-    assert "blocks" not in calls[2].kwargs
+    assert calls[2].kwargs["blocks"] == SAMPLE_ENRICH_RESULT.detail_blocks
 
 
 @pytest.mark.asyncio

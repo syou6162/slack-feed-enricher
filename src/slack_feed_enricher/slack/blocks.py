@@ -20,4 +20,9 @@ class SlackDividerBlock(BaseModel, frozen=True):
     type: Literal["divider"] = "divider"
 
 
-SlackBlock = SlackSectionBlock | SlackDividerBlock
+class SlackHeaderBlock(BaseModel, frozen=True):
+    type: Literal["header"] = "header"
+    text: SlackTextObject
+
+
+SlackBlock = SlackSectionBlock | SlackDividerBlock | SlackHeaderBlock
