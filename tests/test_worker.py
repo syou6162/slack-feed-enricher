@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 from claude_agent_sdk import ResultMessage
 
+from slack_feed_enricher.claude.summarizer import EnrichResult, Meta, Summary, build_meta_blocks, build_summary_blocks
 from slack_feed_enricher.slack import SlackMessage
 from slack_feed_enricher.slack.exceptions import SlackAPIError
 from slack_feed_enricher.worker import QueryFunc, enrich_and_reply_pending_messages, run, send_enriched_messages
@@ -25,6 +26,25 @@ SAMPLE_STRUCTURED_OUTPUT = {
     "summary": {"points": ["ポイント1"]},
     "detail": "# 詳細\n記事の詳細内容",
 }
+
+# テスト用のEnrichResultヘルパー
+_SAMPLE_META = Meta(
+    title="テスト記事",
+    url="https://example.com",
+    author="test_author",
+    category_large="テスト",
+    category_medium="サブカテゴリ",
+    published_at="2025-01-15T10:30:00Z",
+)
+_SAMPLE_SUMMARY = Summary(points=["ポイント1"])
+
+SAMPLE_ENRICH_RESULT = EnrichResult(
+    meta_blocks=build_meta_blocks(_SAMPLE_META),
+    meta_text="*テスト記事*\nURL: https://example.com\n著者: test_author\nカテゴリー: テスト / サブカテゴリ\n投稿日時: 2025-01-15T10:30:00Z",
+    summary_blocks=build_summary_blocks(_SAMPLE_SUMMARY),
+    summary_text="- ポイント1",
+    detail_text="# 詳細\n記事の詳細内容",
+)
 
 
 def create_mock_query_func() -> QueryFunc:
@@ -46,8 +66,8 @@ def create_mock_query_func() -> QueryFunc:
 
 
 @pytest.mark.asyncio
-async def test_send_enriched_messages_posts_multiple_blocks_to_slack() -> None:
-    """複数ブロックがSlackスレッドに順次投稿されること"""
+async def test_send_enriched_messages_posts_three_messages_with_blocks() -> None:
+    """EnrichResultから3通のメッセージが投稿され、1,2通目はblocks付き、3通目はtextのみであること"""
 
     mock_slack_client = AsyncMock()
     mock_slack_client.post_thread_reply.side_effect = [
@@ -60,34 +80,25 @@ async def test_send_enriched_messages_posts_multiple_blocks_to_slack() -> None:
         slack_client=mock_slack_client,
         channel_id="C0123456789",
         thread_ts="1234567890.000000",
-        texts=["メタ情報テキスト", "要約テキスト", "詳細テキスト"],
+        result=SAMPLE_ENRICH_RESULT,
     )
 
     assert result == ["ts_meta", "ts_summary", "ts_detail"]
     assert mock_slack_client.post_thread_reply.call_count == 3
-    # 投稿順序の検証
+
     calls = mock_slack_client.post_thread_reply.call_args_list
-    assert calls[0].kwargs["text"] == "メタ情報テキスト"
-    assert calls[1].kwargs["text"] == "要約テキスト"
-    assert calls[2].kwargs["text"] == "詳細テキスト"
 
+    # 1通目: meta（blocks + text）
+    assert calls[0].kwargs["text"] == SAMPLE_ENRICH_RESULT.meta_text
+    assert calls[0].kwargs["blocks"] == SAMPLE_ENRICH_RESULT.meta_blocks
 
-@pytest.mark.asyncio
-async def test_send_enriched_messages_single_block() -> None:
-    """1ブロックのみの場合も正しく動作すること"""
+    # 2通目: summary（blocks + text）
+    assert calls[1].kwargs["text"] == SAMPLE_ENRICH_RESULT.summary_text
+    assert calls[1].kwargs["blocks"] == SAMPLE_ENRICH_RESULT.summary_blocks
 
-    mock_slack_client = AsyncMock()
-    mock_slack_client.post_thread_reply.return_value = "ts_single"
-
-    result = await send_enriched_messages(
-        slack_client=mock_slack_client,
-        channel_id="C0123456789",
-        thread_ts="1234567890.000000",
-        texts=["単一テキスト"],
-    )
-
-    assert result == ["ts_single"]
-    mock_slack_client.post_thread_reply.assert_called_once()
+    # 3通目: detail（textのみ、blocksなし）
+    assert calls[2].kwargs["text"] == SAMPLE_ENRICH_RESULT.detail_text
+    assert "blocks" not in calls[2].kwargs
 
 
 @pytest.mark.asyncio
@@ -129,16 +140,16 @@ async def test_enrich_and_reply_pending_messages_continues_on_error() -> None:
         SlackMessage(ts="2", text="<https://example2.com>", reply_count=0),
         SlackMessage(ts="3", text="<https://example3.com>", reply_count=0),
     ]
-    # 各メッセージは3ブロック投稿なので、side_effectも3倍必要
-    # 1件目: 3ブロック成功, 2件目: 1ブロック目でエラー, 3件目: 3ブロック成功
+    # 各メッセージは3通投稿なので、side_effectも3倍必要
+    # 1件目: 3通成功, 2件目: 1通目でエラー, 3件目: 3通成功
     mock_slack_client.post_thread_reply.side_effect = [
-        "reply_ts_1a",
-        "reply_ts_1b",
-        "reply_ts_1c",
-        SlackAPIError("エラー", "rate_limited"),
-        "reply_ts_3a",
-        "reply_ts_3b",
-        "reply_ts_3c",
+        "reply_ts_1a",  # msg1: meta
+        "reply_ts_1b",  # msg1: summary
+        "reply_ts_1c",  # msg1: detail
+        SlackAPIError("エラー", "rate_limited"),  # msg2: meta（エラー）
+        "reply_ts_3a",  # msg3: meta
+        "reply_ts_3b",  # msg3: summary
+        "reply_ts_3c",  # msg3: detail
     ]
 
     mock_query_func = create_mock_query_func()
