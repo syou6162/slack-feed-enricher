@@ -26,18 +26,15 @@ class TestStructuredOutputSchema:
     """StructuredOutput Pydanticモデルのスキーマテスト"""
 
     def test_schema_has_required_top_level_keys(self) -> None:
-        """model_json_schema()にmeta, summary, detailがrequiredとして含まれること"""
+        """model_json_schema()のトップレベルキーとrequiredが完全一致すること"""
         schema = StructuredOutput.model_json_schema()
-        assert "required" in schema
+        assert set(schema.keys()) == {"$defs", "properties", "required", "title", "type"}
         assert set(schema["required"]) == {"meta", "summary", "detail"}
 
     def test_schema_has_properties(self) -> None:
-        """model_json_schema()にproperties（meta, summary, detail）が含まれること"""
+        """model_json_schema()のpropertiesがmeta, summary, detailに完全一致すること"""
         schema = StructuredOutput.model_json_schema()
-        assert "properties" in schema
-        assert "meta" in schema["properties"]
-        assert "summary" in schema["properties"]
-        assert "detail" in schema["properties"]
+        assert set(schema["properties"].keys()) == {"meta", "summary", "detail"}
 
     def test_meta_model_fields(self) -> None:
         """Metaモデルに必要なフィールドがすべて定義されていること"""
