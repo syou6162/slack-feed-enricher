@@ -26,11 +26,11 @@ OUTPUT_SCHEMA = {
                 "type": "object",
                 "properties": {
                     "title": {"type": "string", "description": "記事のタイトル"},
-                    "url": {"type": "string", "format": "uri", "description": "記事のURL"},
+                    "url": {"type": "string", "description": "記事のURL"},
                     "author": {"type": ["string", "null"], "description": "著者名（はてなID、Twitter/X ID、本名など。取得できない場合はnull）"},
                     "category_large": {"type": ["string", "null"], "description": "大カテゴリー（例: データエンジニアリング。判定できない場合はnull）"},
                     "category_medium": {"type": ["string", "null"], "description": "中カテゴリー（例: BigQuery。判定できない場合はnull）"},
-                    "published_at": {"type": ["string", "null"], "format": "date-time", "description": "記事の投稿日時（ISO 8601形式。取得できない場合はnull）"},
+                    "published_at": {"type": ["string", "null"], "description": "記事の投稿日時（ISO 8601形式。取得できない場合はnull）"},
                 },
                 "required": ["title", "url", "author", "category_large", "category_medium", "published_at"],
             },
