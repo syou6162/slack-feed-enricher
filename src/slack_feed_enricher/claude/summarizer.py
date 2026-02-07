@@ -82,24 +82,26 @@ def build_summary_prompt(url: str, supplementary_urls: list[str] | None = None) 
         )
 
     parts.append("")
-    parts.append("取得した内容をもとに、以下の3つのブロックに分けて出力してください。")
+    parts.append("取得した内容をもとに、以下のJSON形式で出力してください：")
     parts.append("")
-    parts.append("## ブロック1: メタ情報")
-    parts.append("- 記事のタイトル")
-    parts.append("- URL")
-    parts.append("- 著者名（はてなブログID、Twitter/X ID、本名など、取得できるもの）")
-    parts.append("- カテゴリー（大カテゴリー / 中カテゴリーの2階層）")
-    parts.append("  例: データエンジニアリング / BigQuery")
-    parts.append("- 記事の投稿日時")
+    parts.append("{")
+    parts.append('  "meta": {')
+    parts.append('    "title": "記事のタイトル",')
+    parts.append('    "url": "記事のURL",')
+    parts.append('    "author": "著者名（はてなID、Twitter/X ID、本名など。取得できない場合はnull）",')
+    parts.append('    "category_large": "大カテゴリー（例: データエンジニアリング。判定できない場合はnull）",')
+    parts.append('    "category_medium": "中カテゴリー（例: BigQuery。判定できない場合はnull）",')
+    parts.append('    "published_at": "投稿日時（ISO 8601形式。取得できない場合はnull）"')
+    parts.append("  },")
+    parts.append('  "summary": {')
+    parts.append('    "points": ["箇条書きポイント1", "ポイント2", ...]  // 記事の核心を簡潔にまとめる。最大5項目')
+    parts.append("  },")
+    parts.append('  "detail": "記事内容を構造化した詳細説明（markdown形式）"')
+    parts.append("}")
     parts.append("")
-    parts.append("## ブロック2: 簡潔な要約")
-    parts.append("- 箇条書きで最大5行")
-    parts.append("- 記事の核心を簡潔にまとめる")
-    parts.append("")
-    parts.append("## ブロック3: 詳細")
-    parts.append("- 記事の内容を構造化して詳細に説明")
-    parts.append("- 要約ではなく、記事の内容を網羅的に記述")
-    parts.append("- ただし、Slack APIのメッセージ長制限（40,000文字）を考慮し、適度な長さに収める")
+    parts.append("注意事項:")
+    parts.append("- detailは要約ではなく、記事の内容を網羅的に記述してください")
+    parts.append("- ただし、Slack APIのメッセージ長制限（40,000文字）を考慮し、適度な長さに収めてください")
 
     return "\n".join(parts)
 
@@ -178,6 +180,7 @@ async def fetch_and_summarize(
         output_format=OUTPUT_SCHEMA,
         permission_mode="acceptEdits",
         allowed_tools=["WebFetch", "WebSearch"],
+        max_turns=10,
     )
 
     # query実行
