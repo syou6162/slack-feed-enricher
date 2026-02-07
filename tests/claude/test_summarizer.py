@@ -150,7 +150,7 @@ class TestFetchAndSummarize:
                     ]),
                 ]),
             ],
-            detail_text="# 詳細\n記事の詳細内容",
+            detail_text="*詳細*\n記事の詳細内容",
             detail_blocks=[
                 SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Details")),
                 SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text="*詳細*\n記事の詳細内容")),
@@ -216,7 +216,7 @@ class TestFetchAndSummarize:
                     ]),
                 ]),
             ],
-            detail_text="# 詳細\n記事の詳細内容",
+            detail_text="*詳細*\n記事の詳細内容",
             detail_blocks=[
                 SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Details")),
                 SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text="*詳細*\n記事の詳細内容")),
