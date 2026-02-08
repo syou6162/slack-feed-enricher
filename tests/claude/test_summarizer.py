@@ -529,6 +529,62 @@ class TestFormatMetaBlock:
             "投稿日時: 不明"
         )
 
+    def test_hatebu_entry_adds_line(self) -> None:
+        """hatebu_entry付き → はてブ情報行が追加されること"""
+        meta = {
+            "title": "テスト記事",
+            "url": "https://example.com/article",
+            "author": "taro",
+            "category_large": "Tech",
+            "category_medium": "Python",
+            "published_at": "2025-01-15T10:30:00Z",
+        }
+        entry = HatebuEntry(
+            count=5,
+            bookmarks=[
+                HatebuBookmark(user="user1", comment="良い", timestamp="2024/01/15 10:30"),
+                HatebuBookmark(user="user2", comment="", timestamp="2024/01/15 11:00"),
+            ],
+        )
+        result = format_meta_block(meta, hatebu_entry=entry)
+        assert result == (
+            "*テスト記事*\n"
+            "URL: https://example.com/article\n"
+            "著者: taro\n"
+            "カテゴリー: Tech / Python\n"
+            "投稿日時: 2025-01-15T10:30:00Z\n"
+            "はてなブックマーク: 5 users / 1 comments"
+        )
+
+    def test_hatebu_entry_none_no_line(self) -> None:
+        """hatebu_entry=None → はてブ情報行なし（従来通り）"""
+        meta = {
+            "title": "テスト",
+            "url": "https://example.com",
+            "author": None,
+            "category_large": None,
+            "category_medium": None,
+            "published_at": None,
+        }
+        result_none = format_meta_block(meta, hatebu_entry=None)
+        result_default = format_meta_block(meta)
+        assert result_none == result_default
+        assert "はてなブックマーク" not in result_default
+
+    def test_hatebu_entry_zero_count(self) -> None:
+        """hatebu_entry count=0 → 0 users / 0 comments と表示"""
+        meta = {
+            "title": "テスト",
+            "url": "https://example.com",
+            "author": None,
+            "category_large": None,
+            "category_medium": None,
+            "published_at": None,
+        }
+        entry = HatebuEntry(count=0, bookmarks=[])
+        result = format_meta_block(meta, hatebu_entry=entry)
+        assert "はてなブックマーク: 0 users / 0 comments" in result
+
 
 class TestFormatSummaryBlock:
     """format_summary_block関数のテスト"""

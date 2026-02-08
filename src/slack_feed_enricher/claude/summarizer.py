@@ -472,11 +472,12 @@ def build_detail_blocks(detail: str) -> list[SlackBlock]:
     return sections
 
 
-def format_meta_block(meta: dict[str, Any]) -> str:
+def format_meta_block(meta: dict[str, Any], hatebu_entry: HatebuEntry | None = None) -> str:
     """メタ情報ブロックをフォーマットする
 
     Args:
         meta: メタ情報辞書（title, url, author, category_large, category_medium, published_at）
+        hatebu_entry: はてなブックマークエントリー情報（Noneなら省略）
 
     Returns:
         フォーマットされたメタ情報文字列
@@ -498,6 +499,9 @@ def format_meta_block(meta: dict[str, Any]) -> str:
         lines.append("カテゴリー: 不明")
 
     lines.append(f"投稿日時: {meta['published_at'] or '不明'}")
+
+    if hatebu_entry is not None:
+        lines.append(f"はてなブックマーク: {hatebu_entry.count} users / {hatebu_entry.comment_count} comments")
 
     return "\n".join(lines)
 
