@@ -338,6 +338,9 @@ def _split_mrkdwn_text(text: str, max_length: int = 3000) -> list[str]:
         # エンティティの途中を避ける
         split_pos = _adjust_for_entity_boundary(remaining, split_pos)
 
+        # 調整後のsplit_posでコードブロック内かどうかを再判定
+        will_split_in_code = _is_inside_code_block(offset + split_pos, code_ranges)
+
         chunk_text = remaining[:split_pos]
 
         # コードブロック内で分割する場合の処理

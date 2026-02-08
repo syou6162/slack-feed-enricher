@@ -888,6 +888,32 @@ class TestSplitMrkdwnText:
                 f"チャンク{i}が3000文字を超えている: {len(chunk)}文字"
             )
 
+    def test_will_split_in_code_recalculated_after_adjustment(self) -> None:
+        """split_pos調整後にwill_split_in_codeが再計算されること
+
+        エンティティ(&amp;)がコードブロック直前にあり、エンティティ保護で
+        split_posがコードブロック外に移動した場合、誤って```が付与されないこと。
+
+        構成: prefix(2993) + &amp;(5文字, 2993-2997) + ```code```(2998-)
+        effective_max=3000, pos 3000はコード内 → will_split_in_code=True
+        close_cost=4, split_pos=2996 → &amp;の途中 → 2993に調整
+        2993はコード外 → will_split_in_codeを再計算しないと誤って```が付与される
+        """
+        prefix = "x" * 2993
+        entity = "&amp;"  # 5文字（2993-2997）
+        code_content = "y" * 100
+        code = f"```{code_content}```"  # コードブロック（2998-）
+        text = prefix + entity + code
+
+        chunks = _split_mrkdwn_text(text)
+
+        # 最初のチャンクはprefix + entityまでのはずで、コードブロック外
+        # will_split_in_codeが再計算されていれば```は付与されない
+        first_chunk = chunks[0]
+        assert "```" not in first_chunk, (
+            f"コードブロック外のチャンクに```が付与されている: {first_chunk[-50:]}"
+        )
+
     def test_newline_inside_code_block_not_used_for_split(self) -> None:
         """コードブロック内の改行が分割ポイントとして使われないこと"""
         prefix = "あ" * 2000 + "\n"
