@@ -568,6 +568,9 @@ async def fetch_and_summarize(
         ClaudeAPIError: Claude APIでエラーが発生した場合
         StructuredOutputError: 構造化出力が取得できなかった場合
     """
+    # 前回のコメントファイルを削除
+    Path(_HATEBU_COMMENTS_FILE).unlink(missing_ok=True)
+
     if not url:
         raise ValueError("URLが空です")
 
