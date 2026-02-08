@@ -629,5 +629,5 @@ async def fetch_and_summarize(
         summary_blocks=build_summary_blocks(parsed.summary),
         summary_text=summary_text,
         detail_blocks=build_detail_blocks(detail),
-        detail_text=convert_markdown_to_mrkdwn(detail),
+        detail_text=convert_markdown_to_mrkdwn(detail)[:_DETAIL_TEXT_MAX_CHARS],
     )
