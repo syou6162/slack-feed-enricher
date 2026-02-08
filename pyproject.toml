@@ -17,7 +17,7 @@ dependencies = [
     "pydantic==2.12.5",
     "slack-sdk==3.39.0",
     "aiohttp==3.13.3",
-    "claude-agent-sdk==0.1.31",
+    "claude-agent-sdk==0.1.33",
     "markdown-to-mrkdwn==0.3.1",
     "googlenewsdecoder==0.1.7",
 ]
