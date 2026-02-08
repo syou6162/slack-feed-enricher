@@ -4,7 +4,8 @@ import logging
 import time
 from unittest.mock import patch
 
-from slack_feed_enricher.slack.url_resolver import is_google_news_url, resolve_url
+from slack_feed_enricher.slack.url_extractor import ExtractedUrls
+from slack_feed_enricher.slack.url_resolver import is_google_news_url, resolve_url, resolve_urls
 
 
 class TestIsGoogleNewsUrl:
@@ -95,3 +96,90 @@ class TestResolveUrl:
 
         assert result == url
         assert any("タイムアウト" in record.message for record in caplog.records)  # type: ignore[union-attr]
+
+
+class TestResolveUrls:
+    """resolve_urls関数のテスト"""
+
+    @patch("slack_feed_enricher.slack.url_resolver.new_decoderv1")
+    async def test_main_and_supplementary_urls_resolved(self, mock_decoder: object) -> None:
+        """main_urlとsupplementary_urlsが両方解決される"""
+
+        def decoder_side_effect(url: str) -> dict[str, object]:
+            mapping = {
+                "https://news.google.com/rss/articles/AAA": {"status": True, "decoded_url": "https://example.com/article1"},
+                "https://news.google.com/rss/articles/BBB": {"status": True, "decoded_url": "https://example.com/article2"},
+            }
+            return mapping[url]
+
+        mock_decoder.side_effect = decoder_side_effect  # type: ignore[union-attr]
+
+        extracted = ExtractedUrls(
+            main_url="https://news.google.com/rss/articles/AAA",
+            supplementary_urls=["https://news.google.com/rss/articles/BBB"],
+        )
+        result = await resolve_urls(extracted)
+        assert result.main_url == "https://example.com/article1"
+        assert result.supplementary_urls == ["https://example.com/article2"]
+
+    async def test_main_url_none_returns_as_is(self) -> None:
+        """main_urlがNone → そのまま返る"""
+        extracted = ExtractedUrls(main_url=None, supplementary_urls=[])
+        result = await resolve_urls(extracted)
+        assert result.main_url is None
+        assert result.supplementary_urls == []
+
+    @patch("slack_feed_enricher.slack.url_resolver.new_decoderv1")
+    async def test_duplicate_main_and_supplementary_removed(self, mock_decoder: object) -> None:
+        """解決後にmain_urlとsupplementary_urlsが重複 → 重複除外"""
+
+        def decoder_side_effect(url: str) -> dict[str, object]:
+            # 異なるGoogle News URLが同じ記事URLにデコードされる
+            return {"status": True, "decoded_url": "https://example.com/same-article"}
+
+        mock_decoder.side_effect = decoder_side_effect  # type: ignore[union-attr]
+
+        extracted = ExtractedUrls(
+            main_url="https://news.google.com/rss/articles/AAA",
+            supplementary_urls=["https://news.google.com/rss/articles/BBB"],
+        )
+        result = await resolve_urls(extracted)
+        assert result.main_url == "https://example.com/same-article"
+        assert result.supplementary_urls == []
+
+    @patch("slack_feed_enricher.slack.url_resolver.new_decoderv1")
+    async def test_duplicate_supplementary_urls_deduplicated(self, mock_decoder: object) -> None:
+        """解決後にsupplementary_urls同士が重複 → ユニーク化（順序保持）"""
+
+        def decoder_side_effect(url: str) -> dict[str, object]:
+            mapping = {
+                "https://news.google.com/rss/articles/AAA": {"status": True, "decoded_url": "https://example.com/main"},
+                "https://news.google.com/rss/articles/BBB": {"status": True, "decoded_url": "https://example.com/sub1"},
+                "https://news.google.com/rss/articles/CCC": {"status": True, "decoded_url": "https://example.com/sub1"},
+                "https://news.google.com/rss/articles/DDD": {"status": True, "decoded_url": "https://example.com/sub2"},
+            }
+            return mapping[url]
+
+        mock_decoder.side_effect = decoder_side_effect  # type: ignore[union-attr]
+
+        extracted = ExtractedUrls(
+            main_url="https://news.google.com/rss/articles/AAA",
+            supplementary_urls=[
+                "https://news.google.com/rss/articles/BBB",
+                "https://news.google.com/rss/articles/CCC",
+                "https://news.google.com/rss/articles/DDD",
+            ],
+        )
+        result = await resolve_urls(extracted)
+        assert result.main_url == "https://example.com/main"
+        assert result.supplementary_urls == ["https://example.com/sub1", "https://example.com/sub2"]
+
+    async def test_non_google_news_urls_pass_through(self) -> None:
+        """非Google News URLはそのまま通過する"""
+        extracted = ExtractedUrls(
+            main_url="https://example.com/article1",
+            supplementary_urls=["https://example.com/article2"],
+        )
+        result = await resolve_urls(extracted)
+        assert result.main_url == "https://example.com/article1"
+        assert result.supplementary_urls == ["https://example.com/article2"]
