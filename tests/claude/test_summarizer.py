@@ -12,6 +12,7 @@ from slack_feed_enricher.claude.summarizer import (
     Meta,
     StructuredOutput,
     Summary,
+    _split_mrkdwn_text,
     build_detail_blocks,
     build_meta_blocks,
     build_summary_blocks,
@@ -792,3 +793,63 @@ class TestBuildDetailBlocks:
         blocks = build_detail_blocks(detail)
 
         assert blocks[1].text.text == "a &lt; b &amp; c &gt; d"
+
+
+class TestSplitMrkdwnText:
+    """_split_mrkdwn_text関数のテスト（構文保護）"""
+
+    def test_code_block_not_split(self) -> None:
+        """コードブロックが分割境界をまたがないこと（ブロック再オープン方式）"""
+        # テキスト + コードブロック（合計3000文字超）
+        prefix = "あ" * 100 + "\n"
+        code_block = "```\n" + "x" * 3000 + "\n```"
+        text = prefix + code_block
+        chunks = _split_mrkdwn_text(text)
+
+        # コードブロックが分割された場合、各チャンクで```が対になっていること
+        for chunk in chunks:
+            count = chunk.count("```")
+            assert count % 2 == 0, f"コードブロックの```が対になっていない: {chunk[:100]}..."
+
+    def test_slack_link_not_split(self) -> None:
+        """Slackリンク<url|text>が分割境界をまたがないこと"""
+        # 2990文字 + 長いリンク（合計3000文字超）
+        prefix = "あ" * 2990
+        link = "<https://example.com/very/long/path|リンクテキスト>"
+        text = prefix + link
+        chunks = _split_mrkdwn_text(text)
+
+        # リンクが途中で切れていないこと
+        for chunk in chunks:
+            # < の数と > の数が一致すること（リンク構文が壊れていない）
+            open_count = chunk.count("<")
+            close_count = chunk.count(">")
+            assert open_count == close_count, f"リンク構文が壊れている: {chunk[-100:]}"
+
+    def test_code_block_reopen_across_chunks(self) -> None:
+        """コードブロックが分割された場合、閉じて次チャンクで再オープンすること"""
+        code_content = "x" * 5000
+        text = f"```\n{code_content}\n```"
+        chunks = _split_mrkdwn_text(text)
+
+        # 複数チャンクに分割されること
+        assert len(chunks) >= 2
+        # 各チャンクで```が対になっていること
+        for chunk in chunks:
+            count = chunk.count("```")
+            assert count % 2 == 0, "コードブロックの```が対になっていない"
+
+    def test_newline_inside_code_block_not_used_for_split(self) -> None:
+        """コードブロック内の改行が分割ポイントとして使われないこと"""
+        prefix = "あ" * 2000 + "\n"
+        # コードブロック内に改行が多数あるケース（合計3000文字超）
+        code_lines = "\n".join(["line " + str(i) for i in range(200)])
+        code_block = f"```\n{code_lines}\n```"
+        text = prefix + code_block
+
+        chunks = _split_mrkdwn_text(text)
+
+        # 各チャンクでコードブロックが壊れていないこと
+        for chunk in chunks:
+            count = chunk.count("```")
+            assert count % 2 == 0, "コードブロック内の改行で分割された"

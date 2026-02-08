@@ -177,10 +177,76 @@ def build_summary_blocks(summary: Summary) -> list[SlackBlock]:
     return [header_block, rich_text_block]
 
 
+def _find_code_block_ranges(text: str) -> list[tuple[int, int]]:
+    """テキスト内のコードブロック(```)の範囲を返す。
+
+    Returns:
+        (start, end)のリスト。startは開始```の位置、endは閉じ```+3の位置。
+    """
+    ranges: list[tuple[int, int]] = []
+    pos = 0
+    while pos < len(text):
+        start = text.find("```", pos)
+        if start == -1:
+            break
+        end = text.find("```", start + 3)
+        if end == -1:
+            # 閉じがない場合はテキスト末尾まで
+            ranges.append((start, len(text)))
+            break
+        ranges.append((start, end + 3))
+        pos = end + 3
+    return ranges
+
+
+def _is_inside_code_block(pos: int, code_ranges: list[tuple[int, int]]) -> bool:
+    """指定位置がコードブロック内かどうかを判定する。"""
+    return any(start <= pos < end for start, end in code_ranges)
+
+
+def _is_inside_slack_link(text: str, pos: int) -> bool:
+    """指定位置がSlackリンク<url|text>の内部かどうかを判定する。"""
+    # posより前の最後の < を探す
+    last_open = text.rfind("<", 0, pos)
+    if last_open == -1:
+        return False
+    # その < に対応する > がpos以降にあるか
+    next_close = text.find(">", last_open)
+    return next_close >= pos
+
+
+def _find_safe_newline(remaining: str, max_length: int, code_ranges: list[tuple[int, int]], offset: int) -> int:
+    """コードブロック外の改行位置を探す。
+
+    Args:
+        remaining: 分割対象テキスト
+        max_length: 最大長
+        code_ranges: コードブロックの範囲（元テキスト基準）
+        offset: remainingの元テキスト内でのオフセット
+
+    Returns:
+        改行位置。見つからなければ-1。
+    """
+    search_end = min(max_length, len(remaining))
+    pos = search_end
+    while pos > 0:
+        pos = remaining.rfind("\n", 0, pos)
+        if pos <= 0:
+            return -1
+        # コードブロック内の改行は使わない
+        abs_pos = offset + pos
+        if not _is_inside_code_block(abs_pos, code_ranges):
+            return pos
+        pos -= 1
+    return -1
+
+
 def _split_mrkdwn_text(text: str, max_length: int = 3000) -> list[str]:
     """mrkdwnテキストを構文を壊さないように分割する。
 
-    改行位置での分割を優先し、改行のない長文は文字数ベースで強制分割する。
+    改行位置での分割を優先し、コードブロック内の改行は分割に使わない。
+    コードブロックが境界をまたぐ場合は閉じて次チャンクで再オープンする。
+    Slackリンク(<url|text>)の途中では分割しない。
     &amp;/&lt;/&gt;エンティティの途中では分割しない。
 
     Args:
@@ -193,27 +259,60 @@ def _split_mrkdwn_text(text: str, max_length: int = 3000) -> list[str]:
     if len(text) <= max_length:
         return [text]
 
+    code_ranges = _find_code_block_ranges(text)
     chunks: list[str] = []
     remaining = text
+    offset = 0
+    in_code_block = False
 
     while remaining:
-        if len(remaining) <= max_length:
-            chunks.append(remaining)
+        # 再オープン分のコスト（```\n = 4文字）を考慮
+        effective_max = max_length - 4 if in_code_block else max_length
+
+        if len(remaining) <= effective_max:
+            chunks.append(("```\n" if in_code_block else "") + remaining)
             break
 
-        # 改行位置での分割を試みる（max_length以内の最後の改行）
-        newline_pos = remaining.rfind("\n", 0, max_length)
+        # コードブロック外の改行位置での分割を試みる
+        newline_pos = _find_safe_newline(remaining, effective_max, code_ranges, offset)
         if newline_pos > 0:
-            chunks.append(remaining[:newline_pos])
-            remaining = remaining[newline_pos + 1:]  # 改行自体はスキップ
+            chunk_text = remaining[:newline_pos]
+            # このチャンクがコードブロック内で始まっている場合、先頭に```を付ける
+            if in_code_block:
+                chunk_text = "```\n" + chunk_text
+                in_code_block = False
+            chunks.append(chunk_text)
+            remaining = remaining[newline_pos + 1:]
+            offset += newline_pos + 1
             continue
 
-        # 改行がない場合は文字数ベースで強制分割
-        split_pos = max_length
-        # エンティティ(&amp; &lt; &gt;)の途中で分割しないよう調整
+        # 改行がない場合、Slackリンクとエンティティを避けて強制分割
+        split_pos = effective_max
+        # Slackリンクの途中を避ける
+        if _is_inside_slack_link(remaining, split_pos):
+            link_start = remaining.rfind("<", 0, split_pos)
+            if link_start > 0:
+                split_pos = link_start
+
+        # エンティティの途中を避ける
         split_pos = _adjust_for_entity_boundary(remaining, split_pos)
-        chunks.append(remaining[:split_pos])
+
+        chunk_text = remaining[:split_pos]
+
+        # コードブロック内で分割する場合の処理
+        if _is_inside_code_block(offset + split_pos, code_ranges):
+            # チャンク末尾に```を付けて閉じる
+            if in_code_block:
+                chunk_text = "```\n" + chunk_text
+            chunk_text = chunk_text + "\n```"
+            in_code_block = True  # 次チャンクで再オープンが必要
+        elif in_code_block:
+            chunk_text = "```\n" + chunk_text
+            in_code_block = False
+
+        chunks.append(chunk_text)
         remaining = remaining[split_pos:]
+        offset += split_pos
 
     return chunks
 
