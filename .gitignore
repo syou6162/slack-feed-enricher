@@ -190,6 +190,7 @@ cython_debug/
 
 # Hatena Bookmark comments
 .hatena_bookmark/*.txt
+!.hatena_bookmark/.gitkeep
 
 # Ruff stuff:
 .ruff_cache/
