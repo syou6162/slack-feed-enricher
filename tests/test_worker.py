@@ -12,6 +12,7 @@ from slack_feed_enricher.claude.summarizer import EnrichResult, Meta, Summary, b
 from slack_feed_enricher.hatebu.models import HatebuBookmark, HatebuEntry
 from slack_feed_enricher.slack import SlackMessage
 from slack_feed_enricher.slack.exceptions import SlackAPIError
+from slack_feed_enricher.slack.url_extractor import ExtractedUrls
 from slack_feed_enricher.worker import QueryFunc, enrich_and_reply_pending_messages, run, send_enriched_messages
 
 # テスト用の3ブロック構造化出力を生成するヘルパー
@@ -361,8 +362,6 @@ async def test_run_passes_hatebu_client() -> None:
 @patch("slack_feed_enricher.worker.resolve_urls", new_callable=AsyncMock)
 async def test_enrich_and_reply_calls_resolve_urls(mock_resolve_urls: AsyncMock) -> None:
     """Google News URLを含むメッセージ処理時にresolve_urlsが呼ばれること"""
-    from slack_feed_enricher.slack.url_extractor import ExtractedUrls
-
     mock_resolve_urls.return_value = ExtractedUrls(
         main_url="https://example.com/resolved-article",
         supplementary_urls=[],
