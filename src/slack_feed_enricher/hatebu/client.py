@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import urllib.parse
 from typing import Protocol, runtime_checkable
 
 import aiohttp
 
 from slack_feed_enricher.hatebu.models import HatebuBookmark, HatebuEntry
+
+logger = logging.getLogger(__name__)
 
 _JSONLITE_BASE_URL = "https://b.hatena.ne.jp/entry/jsonlite/"
 _REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=10)
@@ -31,7 +34,10 @@ class AiohttpHatebuClient:
 
         try:
             async with aiohttp.ClientSession(timeout=_REQUEST_TIMEOUT) as session, session.get(api_url) as response:
+                if response.status == 404:
+                    return None
                 if response.status != 200:
+                    logger.warning("Hatena API returned status %d for URL: %s", response.status, url)
                     return None
 
                 data = await response.json()
