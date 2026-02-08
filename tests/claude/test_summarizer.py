@@ -839,6 +839,19 @@ class TestSplitMrkdwnText:
             count = chunk.count("```")
             assert count % 2 == 0, "コードブロックの```が対になっていない"
 
+    def test_code_block_chunks_within_3000_chars(self) -> None:
+        """コードブロック分割時に閉じ/再オープンフェンス込みで各チャンクが3000文字以内であること"""
+        # 改行なしの長いコードブロック（5000文字超）
+        code_content = "x" * 5000
+        text = f"```\n{code_content}\n```"
+        chunks = _split_mrkdwn_text(text)
+
+        # 各チャンクが3000文字以内であること
+        for i, chunk in enumerate(chunks):
+            assert len(chunk) <= 3000, (
+                f"チャンク{i}が3000文字を超えている: {len(chunk)}文字"
+            )
+
     def test_newline_inside_code_block_not_used_for_split(self) -> None:
         """コードブロック内の改行が分割ポイントとして使われないこと"""
         prefix = "あ" * 2000 + "\n"

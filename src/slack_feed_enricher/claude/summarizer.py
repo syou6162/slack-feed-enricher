@@ -265,9 +265,14 @@ def _split_mrkdwn_text(text: str, max_length: int = 3000) -> list[str]:
     offset = 0
     in_code_block = False
 
+    fence_len = 4  # "```\n" or "\n```" = 4文字
+
     while remaining:
-        # 再オープン分のコスト（```\n = 4文字）を考慮
-        effective_max = max_length - 4 if in_code_block else max_length
+        # コードブロック内にいる場合は再オープン(```\n)と閉じフェンス(\n```)の両方を考慮
+        # コードブロック外でも、分割先がコードブロック内に入る可能性があるため
+        # 閉じフェンス分は強制分割パスで個別に考慮する
+        reopen_cost = fence_len if in_code_block else 0
+        effective_max = max_length - reopen_cost
 
         if len(remaining) <= effective_max:
             chunks.append(("```\n" if in_code_block else "") + remaining)
@@ -277,7 +282,6 @@ def _split_mrkdwn_text(text: str, max_length: int = 3000) -> list[str]:
         newline_pos = _find_safe_newline(remaining, effective_max, code_ranges, offset)
         if newline_pos > 0:
             chunk_text = remaining[:newline_pos]
-            # このチャンクがコードブロック内で始まっている場合、先頭に```を付ける
             if in_code_block:
                 chunk_text = "```\n" + chunk_text
                 in_code_block = False
@@ -286,8 +290,15 @@ def _split_mrkdwn_text(text: str, max_length: int = 3000) -> list[str]:
             offset += newline_pos + 1
             continue
 
-        # 改行がない場合、Slackリンクとエンティティを避けて強制分割
-        split_pos = effective_max
+        # 改行がない場合の強制分割
+        # コードブロック内で分割する場合は閉じフェンス分も差し引く
+        will_split_in_code = _is_inside_code_block(
+            offset + min(effective_max, len(remaining)),
+            code_ranges,
+        )
+        close_cost = fence_len if will_split_in_code else 0
+        split_pos = effective_max - close_cost
+
         # Slackリンクの途中を避ける
         if _is_inside_slack_link(remaining, split_pos):
             link_start = remaining.rfind("<", 0, split_pos)
@@ -300,12 +311,11 @@ def _split_mrkdwn_text(text: str, max_length: int = 3000) -> list[str]:
         chunk_text = remaining[:split_pos]
 
         # コードブロック内で分割する場合の処理
-        if _is_inside_code_block(offset + split_pos, code_ranges):
-            # チャンク末尾に```を付けて閉じる
+        if will_split_in_code:
             if in_code_block:
                 chunk_text = "```\n" + chunk_text
             chunk_text = chunk_text + "\n```"
-            in_code_block = True  # 次チャンクで再オープンが必要
+            in_code_block = True
         elif in_code_block:
             chunk_text = "```\n" + chunk_text
             in_code_block = False
