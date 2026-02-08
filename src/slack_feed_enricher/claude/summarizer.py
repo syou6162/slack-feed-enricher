@@ -117,7 +117,7 @@ def build_summary_prompt(
             parts.append("")
             parts.append(f"以下のファイルにはてなブックマークコメントがあります：\n{filepath}")
             parts.append("")
-            parts.append("このコメントを参考に記事を要約してください。")
+            parts.append("記事要約の際にこれらのコメントも参考にしてください。")
 
     return "\n".join(parts)
 

@@ -459,7 +459,7 @@ class TestFetchAndSummarize:
 
         assert len(received_prompts) == 1
         assert ".hatena_bookmark/hatebu_comments.txt" in received_prompts[0]
-        assert "このコメントを参考に記事を要約してください" in received_prompts[0]
+        assert "記事要約の際にこれらのコメントも参考にしてください" in received_prompts[0]
 
     @pytest.mark.asyncio
     async def test_hatebu_no_comments_no_detail_section(self) -> None:
@@ -571,7 +571,7 @@ class TestBuildSummaryPrompt:
         )
         prompt = build_summary_prompt("https://example.com/article", hatebu_entry=entry)
         assert ".hatena_bookmark/hatebu_comments.txt" in prompt
-        assert "このコメントを参考に記事を要約してください" in prompt
+        assert "記事要約の際にこれらのコメントも参考にしてください" in prompt
 
     def test_hatebu_entry_none_no_hatebu_section(self) -> None:
         """hatebu_entry=None → はてブコメントセクションなし（従来通り）"""
