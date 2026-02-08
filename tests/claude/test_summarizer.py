@@ -458,7 +458,7 @@ class TestFetchAndSummarize:
         await fetch_and_summarize(mock_query, "https://example.com", hatebu_entry=entry)
 
         assert len(received_prompts) == 1
-        assert ".claude_work/hatebu_comments.txt" in received_prompts[0]
+        assert ".claude_work/hatebu/comments.txt" in received_prompts[0]
         assert "このコメントを参考に記事を要約してください" in received_prompts[0]
 
     @pytest.mark.asyncio
@@ -570,7 +570,7 @@ class TestBuildSummaryPrompt:
             ],
         )
         prompt = build_summary_prompt("https://example.com/article", hatebu_entry=entry)
-        assert ".claude_work/hatebu_comments.txt" in prompt
+        assert ".claude_work/hatebu/comments.txt" in prompt
         assert "このコメントを参考に記事を要約してください" in prompt
 
     def test_hatebu_entry_none_no_hatebu_section(self) -> None:
@@ -591,7 +591,7 @@ class TestBuildSummaryPrompt:
             ],
         )
         prompt = build_summary_prompt("https://example.com/article", hatebu_entry=entry)
-        assert ".claude_work/hatebu_comments.txt" not in prompt
+        assert ".claude_work/hatebu/comments.txt" not in prompt
 
 
 class TestFormatMetaBlock:
