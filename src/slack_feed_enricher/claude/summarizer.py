@@ -302,8 +302,15 @@ def _split_mrkdwn_text(text: str, max_length: int = 3000) -> list[str]:
         # Slackリンクの途中を避ける
         if _is_inside_slack_link(remaining, split_pos):
             link_start = remaining.rfind("<", 0, split_pos)
-            if link_start > 0:
-                split_pos = link_start
+            if link_start >= 0:
+                if link_start > 0:
+                    # リンクの手前で分割
+                    split_pos = link_start
+                else:
+                    # リンクがチャンク先頭（位置0）の場合、リンク全体を含める
+                    link_end = remaining.find(">", split_pos)
+                    if link_end >= 0:
+                        split_pos = min(link_end + 1, len(remaining))
 
         # エンティティの途中を避ける
         split_pos = _adjust_for_entity_boundary(remaining, split_pos)
@@ -343,6 +350,8 @@ def _adjust_for_entity_boundary(text: str, pos: int) -> int:
         check_pos = pos - offset
         if check_pos < 0:
             break
+        if check_pos >= len(text):
+            continue
         if text[check_pos] == "&":
             # この&から始まるエンティティがposをまたぐかチェック
             for entity in ("&amp;", "&lt;", "&gt;"):

@@ -852,6 +852,27 @@ class TestSplitMrkdwnText:
                 f"チャンク{i}が3000文字を超えている: {len(chunk)}文字"
             )
 
+    def test_slack_link_at_chunk_start_not_split(self) -> None:
+        """チャンク先頭のSlackリンクが分割されないこと（link_start==0のケース）
+
+        2チャンク目の先頭がSlackリンクで始まり、そのリンク内で
+        split_posが来る場合に、link_start==0でも調整されること。
+        """
+        # 1チャンク目で改行分割される部分（2999文字+改行）
+        first_part = "あ" * 2999 + "\n"
+        # 2チャンク目の先頭がSlackリンク。リンクが3000文字超なので強制分割パスに入る
+        url = "https://example.com/" + "a" * 2980
+        link = f"<{url}|テスト>"
+        text = first_part + link
+
+        chunks = _split_mrkdwn_text(text)
+
+        # リンクが途中で切れていないこと
+        for chunk in chunks:
+            open_count = chunk.count("<")
+            close_count = chunk.count(">")
+            assert open_count == close_count, f"リンク構文が壊れている: {chunk[:100]}..."
+
     def test_newline_inside_code_block_not_used_for_split(self) -> None:
         """コードブロック内の改行が分割ポイントとして使われないこと"""
         prefix = "あ" * 2000 + "\n"
