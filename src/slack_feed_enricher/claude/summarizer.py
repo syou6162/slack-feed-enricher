@@ -1,5 +1,7 @@
 """Claude Agent SDKを使用したURL要約機能"""
 
+from __future__ import annotations
+
 import logging
 from collections.abc import AsyncIterator, Callable
 from typing import Any
@@ -12,6 +14,7 @@ from slack_feed_enricher.claude.exceptions import (
     NoResultMessageError,
     StructuredOutputError,
 )
+from slack_feed_enricher.hatebu.models import HatebuEntry
 from slack_feed_enricher.slack.blocks import (
     SlackBlock,
     SlackHeaderBlock,
@@ -65,12 +68,17 @@ OUTPUT_SCHEMA = {
 }
 
 
-def build_summary_prompt(url: str, supplementary_urls: list[str] | None = None) -> str:
+def build_summary_prompt(
+    url: str,
+    supplementary_urls: list[str] | None = None,
+    hatebu_entry: HatebuEntry | None = None,
+) -> str:
     """要約用プロンプトを構築する
 
     Args:
         url: メインURL（記事本体）
         supplementary_urls: 補足URL（引用先、ツール説明等）
+        hatebu_entry: はてなブックマークエントリー情報（Noneなら省略）
 
     Returns:
         構築されたプロンプト文字列
@@ -102,7 +110,48 @@ def build_summary_prompt(url: str, supplementary_urls: list[str] | None = None) 
             "引用元の詳細情報なので、要約に適宜取り込んでください。"
         )
 
+    if hatebu_entry is not None:
+        hatebu_comments = _build_hatebu_comments_for_prompt(hatebu_entry)
+        if hatebu_comments:
+            parts.append("")
+            parts.append(hatebu_comments)
+
     return "\n".join(parts)
+
+
+_PROMPT_COMMENT_MAX_COUNT = 20
+_PROMPT_COMMENT_MAX_CHARS = 4000
+
+
+def _build_hatebu_comments_for_prompt(entry: HatebuEntry) -> str:
+    """プロンプト用のはてブコメントセクションを構築する。
+
+    最大20件かつ合計4000文字で打ち切る。
+    コメント付きブックマークが0件の場合は空文字列を返す。
+    """
+    comments = entry.comments
+    if not comments:
+        return ""
+
+    lines = ["はてなブックマークコメント（要約に反映してください）:"]
+    total_chars = 0
+    included = 0
+
+    for bookmark in comments:
+        if included >= _PROMPT_COMMENT_MAX_COUNT:
+            break
+        line = f"- {bookmark.user}: {bookmark.comment}"
+        line_len = len(line)
+        if total_chars + line_len > _PROMPT_COMMENT_MAX_CHARS:
+            break
+        lines.append(line)
+        total_chars += line_len
+        included += 1
+
+    if included == 0:
+        return ""
+
+    return "\n".join(lines)
 
 
 def build_meta_blocks(meta: Meta) -> list[SlackBlock]:
