@@ -141,7 +141,7 @@ def _write_hatebu_comments_to_file(entry: HatebuEntry) -> str:
         with open(filepath, "w", encoding="utf-8") as f:
             f.write("# はてなブックマークコメント\n\n")
             for bookmark in comments:
-                f.write(f"- ![{bookmark.user}]({bookmark.icon_url}) **{bookmark.user}**: {bookmark.comment}\n")
+                f.write(f"- **{bookmark.user}**: {bookmark.comment}\n")
     except OSError:
         logger.warning("はてブコメントファイルの書き込みに失敗しました: %s", _HATEBU_COMMENTS_FILE)
         return ""
@@ -533,7 +533,7 @@ def _build_hatebu_comments_for_detail(entry: HatebuEntry, remaining_chars: int) 
 
     lines = [header]
     for bookmark in comments:
-        line = f"- ![{bookmark.user}]({bookmark.icon_url}) **{bookmark.user}**: {bookmark.comment}\n"
+        line = f"- **{bookmark.user}**: {bookmark.comment}\n"
         if total_chars + len(line) > remaining_chars:
             break
         lines.append(line)

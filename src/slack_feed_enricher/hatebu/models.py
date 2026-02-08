@@ -11,11 +11,6 @@ class HatebuBookmark:
     comment: str
     timestamp: str
 
-    @property
-    def icon_url(self) -> str:
-        """はてなプロフィールアイコンのURLを返す"""
-        return f"https://cdn.profile-image.st-hatena.com/users/{self.user}/profile.png"
-
 
 @dataclass
 class HatebuEntry:
