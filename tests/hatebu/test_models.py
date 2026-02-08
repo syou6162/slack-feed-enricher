@@ -17,6 +17,15 @@ class TestHatebuBookmark:
         assert bookmark.comment == "良い記事"
         assert bookmark.timestamp == "2024/01/15 10:30"
 
+    def test_icon_url(self) -> None:
+        """icon_urlがはてなプロフィールアイコンURLを返すこと"""
+        bookmark = HatebuBookmark(
+            user="testuser",
+            comment="良い記事",
+            timestamp="2024/01/15 10:30",
+        )
+        assert bookmark.icon_url == "https://cdn.profile-image.st-hatena.com/users/testuser/profile.png"
+
     def test_create_bookmark_with_empty_comment(self) -> None:
         """空コメントのブックマークが生成できること"""
         bookmark = HatebuBookmark(
