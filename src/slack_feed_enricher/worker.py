@@ -12,7 +12,7 @@ from typing import Any
 from slack_feed_enricher.claude import fetch_and_summarize
 from slack_feed_enricher.claude.summarizer import EnrichResult
 from slack_feed_enricher.hatebu.client import HatebuClient
-from slack_feed_enricher.slack import SlackClient, extract_urls
+from slack_feed_enricher.slack import SlackClient, extract_urls, resolve_urls
 
 logger = logging.getLogger(__name__)
 
@@ -141,16 +141,21 @@ async def enrich_and_reply_pending_messages(
                 skipped_count += 1
                 continue
 
+            resolved = await resolve_urls(extracted)
+            if resolved.main_url is None:
+                skipped_count += 1
+                continue
+
             # はてブエントリー取得（フェイルオープン）
             hatebu_entry = None
             if hatebu_client is not None:
                 try:
-                    hatebu_entry = await hatebu_client.fetch_entry(extracted.main_url)
+                    hatebu_entry = await hatebu_client.fetch_entry(resolved.main_url)
                 except Exception:
-                    logger.warning(f"はてブ取得失敗 (URL: {extracted.main_url}), hatebu_entry=Noneで続行")
+                    logger.warning(f"はてブ取得失敗 (URL: {resolved.main_url}), hatebu_entry=Noneで続行")
 
             enrich_result = await fetch_and_summarize(
-                query_func, extracted.main_url, extracted.supplementary_urls, hatebu_entry=hatebu_entry
+                query_func, resolved.main_url, resolved.supplementary_urls, hatebu_entry=hatebu_entry
             )
             await send_enriched_messages(
                 slack_client=slack_client,

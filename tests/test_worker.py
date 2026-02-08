@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import suppress
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from claude_agent_sdk import ResultMessage
@@ -12,6 +12,7 @@ from slack_feed_enricher.claude.summarizer import EnrichResult, Meta, Summary, b
 from slack_feed_enricher.hatebu.models import HatebuBookmark, HatebuEntry
 from slack_feed_enricher.slack import SlackMessage
 from slack_feed_enricher.slack.exceptions import SlackAPIError
+from slack_feed_enricher.slack.url_extractor import ExtractedUrls
 from slack_feed_enricher.worker import QueryFunc, enrich_and_reply_pending_messages, run, send_enriched_messages
 
 # テスト用の3ブロック構造化出力を生成するヘルパー
@@ -355,3 +356,40 @@ async def test_run_passes_hatebu_client() -> None:
         await task
 
     mock_slack_client.fetch_unreplied_messages.assert_called()
+
+
+@pytest.mark.asyncio
+@patch("slack_feed_enricher.worker.resolve_urls", new_callable=AsyncMock)
+async def test_enrich_and_reply_calls_resolve_urls(mock_resolve_urls: AsyncMock) -> None:
+    """Google News URLを含むメッセージ処理時にresolve_urlsが呼ばれること"""
+    mock_resolve_urls.return_value = ExtractedUrls(
+        main_url="https://example.com/resolved-article",
+        supplementary_urls=[],
+    )
+
+    mock_slack_client = AsyncMock()
+    mock_slack_client.fetch_unreplied_messages.return_value = [
+        SlackMessage(
+            ts="1",
+            text="<https://news.google.com/rss/articles/CBMiWkFV_yqLPPG26S54Vr3FAAJZqPNByc?oc=5>",
+            reply_count=0,
+        ),
+    ]
+    mock_slack_client.post_thread_reply.return_value = "reply_ts"
+
+    mock_query_func = create_mock_query_func()
+
+    result = await enrich_and_reply_pending_messages(
+        slack_client=mock_slack_client,
+        query_func=mock_query_func,
+        channel_id="C0123456789",
+        message_limit=100,
+    )
+
+    assert result.success_count == 1
+    assert result.error_count == 0
+
+    # resolve_urlsが呼ばれたことを確認
+    mock_resolve_urls.assert_called_once()
+    call_arg = mock_resolve_urls.call_args[0][0]
+    assert call_arg.main_url == "https://news.google.com/rss/articles/CBMiWkFV_yqLPPG26S54Vr3FAAJZqPNByc?oc=5"
