@@ -316,6 +316,182 @@ class TestFetchAndSummarize:
             " (subtype=error_max_structured_output_retries, result=Failed to generate structured output)"
         )
 
+    @pytest.mark.asyncio
+    async def test_hatebu_entry_adds_comments_to_detail_and_meta(self) -> None:
+        """hatebu_entry付き → detailにコメントセクション、metaにはてブ情報が含まれること"""
+        mock_result = AsyncMock(spec=ResultMessage)
+        mock_result.is_error = False
+        mock_result.structured_output = {
+            "meta": {
+                "title": "テスト記事",
+                "url": "https://example.com",
+                "author": None,
+                "category_large": None,
+                "category_medium": None,
+                "published_at": None,
+            },
+            "summary": {"points": ["ポイント1"]},
+            "detail": "# 詳細\n記事の詳細内容",
+        }
+
+        async def mock_query(**kwargs: object) -> AsyncIterator[object]:  # noqa: ARG001
+            yield mock_result
+
+        entry = HatebuEntry(
+            count=3,
+            bookmarks=[
+                HatebuBookmark(user="user1", comment="良い記事", timestamp="2024/01/15 10:30"),
+                HatebuBookmark(user="user2", comment="", timestamp="2024/01/15 11:00"),
+                HatebuBookmark(user="user3", comment="参考になった", timestamp="2024/01/15 12:00"),
+            ],
+        )
+        result = await fetch_and_summarize(mock_query, "https://example.com", hatebu_entry=entry)
+
+        # detail_textにはてブコメントが含まれること
+        assert "はてなブックマークコメント" in result.detail_text
+        assert "user1" in result.detail_text
+        assert "良い記事" in result.detail_text
+        assert "user3" in result.detail_text
+        assert "参考になった" in result.detail_text
+        # 空コメントのuser2は含まれない
+        assert "user2" not in result.detail_text
+
+        # meta_textにはてブ情報が含まれること
+        assert "はてなブックマーク: 3 users / 2 comments" in result.meta_text
+
+        # meta_blocksにはてブフィールドが含まれること
+        fields_block = result.meta_blocks[1]
+        assert isinstance(fields_block, SlackSectionBlock)
+        assert fields_block.fields is not None
+        hatebu_field_values = [f.text for f in fields_block.fields if "users" in f.text]
+        assert len(hatebu_field_values) == 1
+
+    @pytest.mark.asyncio
+    async def test_hatebu_entry_none_no_changes(self) -> None:
+        """hatebu_entry=None → 従来通りの出力"""
+        mock_result = AsyncMock(spec=ResultMessage)
+        mock_result.is_error = False
+        mock_result.structured_output = {
+            "meta": {
+                "title": "テスト記事",
+                "url": "https://example.com",
+                "author": None,
+                "category_large": None,
+                "category_medium": None,
+                "published_at": None,
+            },
+            "summary": {"points": ["ポイント1"]},
+            "detail": "# 詳細\n記事の詳細内容",
+        }
+
+        async def mock_query(**kwargs: object) -> AsyncIterator[object]:  # noqa: ARG001
+            yield mock_result
+
+        result = await fetch_and_summarize(mock_query, "https://example.com", hatebu_entry=None)
+        assert "はてなブックマーク" not in result.detail_text
+        assert "はてなブックマーク" not in result.meta_text
+
+    @pytest.mark.asyncio
+    async def test_hatebu_detail_blocks_contain_comments(self) -> None:
+        """hatebu_entry付き → detail_blocksにもコメントが含まれること"""
+        mock_result = AsyncMock(spec=ResultMessage)
+        mock_result.is_error = False
+        mock_result.structured_output = {
+            "meta": {
+                "title": "テスト",
+                "url": "https://example.com",
+                "author": None,
+                "category_large": None,
+                "category_medium": None,
+                "published_at": None,
+            },
+            "summary": {"points": ["ポイント"]},
+            "detail": "詳細テキスト",
+        }
+
+        async def mock_query(**kwargs: object) -> AsyncIterator[object]:  # noqa: ARG001
+            yield mock_result
+
+        entry = HatebuEntry(
+            count=1,
+            bookmarks=[HatebuBookmark(user="tester", comment="テストコメント", timestamp="2024/01/15 10:30")],
+        )
+        result = await fetch_and_summarize(mock_query, "https://example.com", hatebu_entry=entry)
+
+        # detail_blocksのテキストにコメントが含まれること
+        detail_texts = []
+        for block in result.detail_blocks:
+            if isinstance(block, SlackSectionBlock) and block.text:
+                detail_texts.append(block.text.text)
+        all_detail_text = "\n".join(detail_texts)
+        assert "tester" in all_detail_text
+        assert "テストコメント" in all_detail_text
+
+    @pytest.mark.asyncio
+    async def test_hatebu_prompt_includes_comments(self) -> None:
+        """hatebu_entry付き → プロンプトにはてブコメントが含まれること"""
+        mock_result = AsyncMock(spec=ResultMessage)
+        mock_result.is_error = False
+        mock_result.structured_output = {
+            "meta": {
+                "title": "テスト",
+                "url": "https://example.com",
+                "author": None,
+                "category_large": None,
+                "category_medium": None,
+                "published_at": None,
+            },
+            "summary": {"points": ["ポイント"]},
+            "detail": "詳細",
+        }
+
+        received_prompts: list[str] = []
+
+        async def mock_query(**kwargs: object) -> AsyncIterator[object]:
+            received_prompts.append(str(kwargs.get("prompt", "")))
+            yield mock_result
+
+        entry = HatebuEntry(
+            count=1,
+            bookmarks=[HatebuBookmark(user="commenter", comment="素晴らしい", timestamp="2024/01/15 10:30")],
+        )
+        await fetch_and_summarize(mock_query, "https://example.com", hatebu_entry=entry)
+
+        assert len(received_prompts) == 1
+        assert "commenter" in received_prompts[0]
+        assert "素晴らしい" in received_prompts[0]
+
+    @pytest.mark.asyncio
+    async def test_hatebu_no_comments_no_detail_section(self) -> None:
+        """hatebu_entryのコメントが全て空 → detailにコメントセクションが追加されない"""
+        mock_result = AsyncMock(spec=ResultMessage)
+        mock_result.is_error = False
+        mock_result.structured_output = {
+            "meta": {
+                "title": "テスト",
+                "url": "https://example.com",
+                "author": None,
+                "category_large": None,
+                "category_medium": None,
+                "published_at": None,
+            },
+            "summary": {"points": ["ポイント"]},
+            "detail": "詳細テキスト",
+        }
+
+        async def mock_query(**kwargs: object) -> AsyncIterator[object]:  # noqa: ARG001
+            yield mock_result
+
+        entry = HatebuEntry(
+            count=2,
+            bookmarks=[
+                HatebuBookmark(user="u1", comment="", timestamp="2024/01/15 10:30"),
+                HatebuBookmark(user="u2", comment="   ", timestamp="2024/01/15 11:00"),
+            ],
+        )
+        result = await fetch_and_summarize(mock_query, "https://example.com", hatebu_entry=entry)
+        assert "はてなブックマークコメント" not in result.detail_text
+
 
 class TestBuildSummaryPrompt:
     """build_summary_prompt関数のテスト"""

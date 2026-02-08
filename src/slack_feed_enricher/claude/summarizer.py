@@ -518,10 +518,43 @@ def format_summary_block(summary: dict[str, Any]) -> str:
     return "\n".join(f"- {point}" for point in summary["points"])
 
 
+_DETAIL_TEXT_MAX_CHARS = 40000
+
+
+def _build_hatebu_comments_for_detail(entry: HatebuEntry, remaining_chars: int) -> str:
+    """detail用のはてブコメントMarkdownセクションを構築する。
+
+    コメント付きブックマークが0件の場合は空文字列を返す。
+    remaining_charsを超えないようにコメント単位で打ち切る。
+    """
+    comments = entry.comments
+    if not comments:
+        return ""
+
+    header = "\n\n## はてなブックマークコメント\n"
+    total_chars = len(header)
+    if total_chars > remaining_chars:
+        return ""
+
+    lines = [header]
+    for bookmark in comments:
+        line = f"- **{bookmark.user}**: {bookmark.comment} ({bookmark.timestamp})\n"
+        if total_chars + len(line) > remaining_chars:
+            break
+        lines.append(line)
+        total_chars += len(line)
+
+    if len(lines) == 1:
+        return ""
+
+    return "".join(lines).rstrip("\n")
+
+
 async def fetch_and_summarize(
     query_func: QueryFunc,
     url: str,
     supplementary_urls: list[str] | None = None,
+    hatebu_entry: HatebuEntry | None = None,
 ) -> EnrichResult:
     """URLの内容をWebFetchで取得し、構造化された要約結果を返す
 
@@ -529,6 +562,7 @@ async def fetch_and_summarize(
         query_func: claude_agent_sdk.query関数（またはモック）
         url: 要約対象のURL
         supplementary_urls: 補足URL（引用先、ツール説明等）
+        hatebu_entry: はてなブックマークエントリー情報（Noneなら省略）
 
     Returns:
         EnrichResult: Block Kit形式のブロックとフォールバックテキストを含む結果
@@ -543,7 +577,7 @@ async def fetch_and_summarize(
         raise ValueError("URLが空です")
 
     # プロンプト構築
-    prompt = build_summary_prompt(url, supplementary_urls)
+    prompt = build_summary_prompt(url, supplementary_urls, hatebu_entry=hatebu_entry)
 
     # ClaudeAgentOptions作成
     options = ClaudeAgentOptions(
@@ -579,14 +613,21 @@ async def fetch_and_summarize(
     except ValidationError as e:
         raise StructuredOutputError(f"構造化出力のバリデーションに失敗しました: {e}") from e
 
-    meta_text = format_meta_block(parsed.meta.model_dump())
+    # detailにはてブコメント全文を結合（結合後のdetail文字列を一度だけ作る）
+    detail = parsed.detail
+    if hatebu_entry is not None:
+        remaining = _DETAIL_TEXT_MAX_CHARS - len(detail)
+        hatebu_detail = _build_hatebu_comments_for_detail(hatebu_entry, remaining)
+        detail = detail + hatebu_detail
+
+    meta_text = format_meta_block(parsed.meta.model_dump(), hatebu_entry=hatebu_entry)
     summary_text = format_summary_block(parsed.summary.model_dump())
 
     return EnrichResult(
-        meta_blocks=build_meta_blocks(parsed.meta),
+        meta_blocks=build_meta_blocks(parsed.meta, hatebu_entry=hatebu_entry),
         meta_text=meta_text,
         summary_blocks=build_summary_blocks(parsed.summary),
         summary_text=summary_text,
-        detail_blocks=build_detail_blocks(parsed.detail),
-        detail_text=convert_markdown_to_mrkdwn(parsed.detail),
+        detail_blocks=build_detail_blocks(detail),
+        detail_text=convert_markdown_to_mrkdwn(detail),
     )
