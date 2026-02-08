@@ -189,7 +189,7 @@ cython_debug/
 # .vscode/
 
 # Hatena Bookmark comments
-.claude_work/hatebu/*.txt
+.hatena_bookmark/*.txt
 
 # Ruff stuff:
 .ruff_cache/

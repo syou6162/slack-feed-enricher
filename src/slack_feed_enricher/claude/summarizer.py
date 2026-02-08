@@ -122,7 +122,7 @@ def build_summary_prompt(
     return "\n".join(parts)
 
 
-_HATEBU_COMMENTS_FILE = ".claude_work/hatebu/comments.txt"
+_HATEBU_COMMENTS_FILE = ".hatena_bookmark/hatebu_comments.txt"
 
 
 def _write_hatebu_comments_to_file(entry: HatebuEntry) -> str:
@@ -137,6 +137,7 @@ def _write_hatebu_comments_to_file(entry: HatebuEntry) -> str:
 
     try:
         filepath = Path(_HATEBU_COMMENTS_FILE)
+        filepath.parent.mkdir(parents=True, exist_ok=True)
         with open(filepath, "w", encoding="utf-8") as f:
             f.write("# はてなブックマークコメント\n\n")
             for bookmark in comments:
