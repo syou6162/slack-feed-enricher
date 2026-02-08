@@ -1,6 +1,7 @@
 """URL解決機能のテスト"""
 
 import logging
+import time
 from unittest.mock import patch
 
 from slack_feed_enricher.slack.url_resolver import is_google_news_url, resolve_url
@@ -83,7 +84,6 @@ class TestResolveUrl:
         """タイムアウト発生 → 元URLをフォールバック + WARNINGログ"""
 
         def slow_decoder(url: str) -> dict[str, object]:
-            import time
             time.sleep(30)
             return {"status": True, "decoded_url": "https://example.com"}
 
