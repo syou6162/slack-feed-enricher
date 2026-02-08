@@ -9,6 +9,7 @@ from slack_feed_enricher.slack.blocks import (
 )
 from slack_feed_enricher.slack.client import SlackClient, SlackMessage
 from slack_feed_enricher.slack.exceptions import SlackAPIError, SlackError
+from slack_feed_enricher.slack.markdown_converter import convert_markdown_to_mrkdwn
 from slack_feed_enricher.slack.url_extractor import ExtractedUrls, extract_urls
 
 __all__ = [
@@ -22,5 +23,6 @@ __all__ = [
     "SlackMessage",
     "SlackSectionBlock",
     "SlackTextObject",
+    "convert_markdown_to_mrkdwn",
     "extract_urls",
 ]

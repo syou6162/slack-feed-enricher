@@ -22,6 +22,7 @@ from slack_feed_enricher.slack.blocks import (
     SlackTextElement,
     SlackTextObject,
 )
+from slack_feed_enricher.slack.markdown_converter import convert_markdown_to_mrkdwn
 
 logger = logging.getLogger(__name__)
 
@@ -176,11 +177,224 @@ def build_summary_blocks(summary: Summary) -> list[SlackBlock]:
     return [header_block, rich_text_block]
 
 
+def _find_code_block_ranges(text: str) -> list[tuple[int, int]]:
+    """テキスト内のコードブロック(```)の範囲を返す。
+
+    Returns:
+        (start, end)のリスト。startは開始```の位置、endは閉じ```+3の位置。
+    """
+    ranges: list[tuple[int, int]] = []
+    pos = 0
+    while pos < len(text):
+        start = text.find("```", pos)
+        if start == -1:
+            break
+        end = text.find("```", start + 3)
+        if end == -1:
+            # 閉じがない場合はテキスト末尾まで
+            ranges.append((start, len(text)))
+            break
+        ranges.append((start, end + 3))
+        pos = end + 3
+    return ranges
+
+
+def _is_inside_code_block(pos: int, code_ranges: list[tuple[int, int]]) -> bool:
+    """指定位置がコードブロック内かどうかを判定する。"""
+    return any(start <= pos < end for start, end in code_ranges)
+
+
+def _is_inside_slack_link(text: str, pos: int) -> bool:
+    """指定位置がSlackリンク<url|text>の内部かどうかを判定する。"""
+    # posより前の最後の < を探す
+    last_open = text.rfind("<", 0, pos)
+    if last_open == -1:
+        return False
+    # その < に対応する > がpos以降にあるか
+    next_close = text.find(">", last_open)
+    return next_close >= pos
+
+
+def _find_safe_newline(remaining: str, max_length: int, code_ranges: list[tuple[int, int]], offset: int) -> int:
+    """コードブロック外の改行位置を探す。
+
+    Args:
+        remaining: 分割対象テキスト
+        max_length: 最大長
+        code_ranges: コードブロックの範囲（元テキスト基準）
+        offset: remainingの元テキスト内でのオフセット
+
+    Returns:
+        改行位置。見つからなければ-1。
+    """
+    search_end = min(max_length, len(remaining))
+    pos = search_end
+    while pos > 0:
+        pos = remaining.rfind("\n", 0, pos)
+        if pos <= 0:
+            return -1
+        # コードブロック内の改行は使わない
+        abs_pos = offset + pos
+        if not _is_inside_code_block(abs_pos, code_ranges):
+            return pos
+        pos -= 1
+    return -1
+
+
+def _adjust_split_for_slack_link(remaining: str, split_pos: int, max_length: int, reopen_cost: int) -> int:
+    """Slackリンクの途中で分割しないよう分割位置を調整する。
+
+    Args:
+        remaining: 分割対象テキスト
+        split_pos: 現在の分割候補位置
+        max_length: 1チャンクの最大文字数
+        reopen_cost: コードブロック再オープンのコスト
+
+    Returns:
+        調整後の分割位置
+    """
+    if not _is_inside_slack_link(remaining, split_pos):
+        return split_pos
+
+    link_start = remaining.rfind("<", 0, split_pos)
+    if link_start < 0:
+        return split_pos
+
+    if link_start > 0:
+        return link_start
+
+    # リンクがチャンク先頭（位置0）の場合、リンク全体を含める
+    link_end = remaining.find(">", split_pos)
+    if link_end >= 0:
+        link_whole = min(link_end + 1, len(remaining))
+        if link_whole + reopen_cost <= max_length:
+            return link_whole
+
+    # リンク全体がmax_lengthを超える場合は強制分割
+    return split_pos
+
+
+def _split_mrkdwn_text(text: str, max_length: int = 3000) -> list[str]:
+    """mrkdwnテキストを構文を壊さないように分割する。
+
+    改行位置での分割を優先し、コードブロック内の改行は分割に使わない。
+    コードブロックが境界をまたぐ場合は閉じて次チャンクで再オープンする。
+    Slackリンク(<url|text>)の途中では分割しない。
+    &amp;/&lt;/&gt;エンティティの途中では分割しない。
+
+    Args:
+        text: 分割対象テキスト
+        max_length: 1チャンクの最大文字数
+
+    Returns:
+        分割されたテキストのリスト
+    """
+    if len(text) <= max_length:
+        return [text]
+
+    code_ranges = _find_code_block_ranges(text)
+    chunks: list[str] = []
+    remaining = text
+    offset = 0
+    in_code_block = False
+
+    fence_len = 4  # "```\n" or "\n```" = 4文字
+
+    while remaining:
+        # コードブロック内にいる場合は再オープン(```\n)と閉じフェンス(\n```)の両方を考慮
+        # コードブロック外でも、分割先がコードブロック内に入る可能性があるため
+        # 閉じフェンス分は強制分割パスで個別に考慮する
+        reopen_cost = fence_len if in_code_block else 0
+        effective_max = max_length - reopen_cost
+
+        if len(remaining) <= effective_max:
+            chunks.append(("```\n" if in_code_block else "") + remaining)
+            break
+
+        # コードブロック外の改行位置での分割を試みる
+        newline_pos = _find_safe_newline(remaining, effective_max, code_ranges, offset)
+        if newline_pos > 0:
+            chunk_text = remaining[:newline_pos]
+            if in_code_block:
+                chunk_text = "```\n" + chunk_text
+                in_code_block = False
+            chunks.append(chunk_text)
+            remaining = remaining[newline_pos + 1:]
+            offset += newline_pos + 1
+            continue
+
+        # 改行がない場合の強制分割
+        # コードブロック内で分割する場合は閉じフェンス分も差し引く
+        will_split_in_code = _is_inside_code_block(
+            offset + min(effective_max, len(remaining)),
+            code_ranges,
+        )
+        close_cost = fence_len if will_split_in_code else 0
+        split_pos = effective_max - close_cost
+
+        # Slackリンクの途中を避ける
+        split_pos = _adjust_split_for_slack_link(remaining, split_pos, max_length, reopen_cost)
+
+        # エンティティの途中を避ける
+        split_pos = _adjust_for_entity_boundary(remaining, split_pos)
+
+        # 調整後のsplit_posでコードブロック内かどうかを再判定
+        will_split_in_code = _is_inside_code_block(offset + split_pos, code_ranges)
+
+        chunk_text = remaining[:split_pos]
+
+        # コードブロック内で分割する場合の処理
+        if will_split_in_code:
+            if in_code_block:
+                chunk_text = "```\n" + chunk_text
+            chunk_text = chunk_text + "\n```"
+            in_code_block = True
+        elif in_code_block:
+            chunk_text = "```\n" + chunk_text
+            in_code_block = False
+
+        chunks.append(chunk_text)
+        remaining = remaining[split_pos:]
+        offset += split_pos
+
+    return chunks
+
+
+def _adjust_for_entity_boundary(text: str, pos: int) -> int:
+    """エンティティ(&amp; &lt; &gt;)の途中で分割しないよう位置を調整する。
+
+    Args:
+        text: テキスト
+        pos: 分割候補位置
+
+    Returns:
+        調整後の分割位置
+    """
+    # pos付近で&が始まるエンティティをチェック
+    # 最大エンティティ長は &amp; の5文字
+    for offset in range(5):
+        check_pos = pos - offset
+        if check_pos < 0:
+            break
+        if check_pos >= len(text):
+            continue
+        if text[check_pos] == "&":
+            # この&から始まるエンティティがposをまたぐかチェック
+            for entity in ("&amp;", "&lt;", "&gt;"):
+                if text[check_pos:check_pos + len(entity)] == entity:
+                    entity_end = check_pos + len(entity)
+                    if entity_end > pos:
+                        # エンティティの前で分割
+                        return check_pos
+    return pos
+
+
 def build_detail_blocks(detail: str) -> list[SlackBlock]:
     """detail文字列からSlack Block Kitブロック配列を生成する
 
-    SlackHeaderBlockで「Details」タイトルを表示し、detailテキストをsectionブロックで表示する。
-    3000文字を超える場合は複数sectionに分割する。
+    SlackHeaderBlockで「Details」タイトルを表示し、Markdown→mrkdwn変換後の
+    detailテキストをsectionブロックで表示する。
+    3000文字を超える場合は改行位置を優先して複数sectionに分割する。
 
     Args:
         detail: 詳細テキスト（markdown形式）
@@ -190,15 +404,14 @@ def build_detail_blocks(detail: str) -> list[SlackBlock]:
     """
     header_block = SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Details"))
 
-    # Slackのsectionブロックtextは最大3000文字
-    max_section_text_length = 3000
+    # Markdown→Slack mrkdwn変換
+    converted = convert_markdown_to_mrkdwn(detail)
 
-    if len(detail) <= max_section_text_length:
-        return [header_block, SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=detail))]
+    # 3000文字以下ならそのまま
+    chunks = _split_mrkdwn_text(converted)
 
     sections: list[SlackBlock] = [header_block]
-    for i in range(0, len(detail), max_section_text_length):
-        chunk = detail[i:i + max_section_text_length]
+    for chunk in chunks:
         sections.append(SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=chunk)))
 
     return sections
@@ -316,5 +529,5 @@ async def fetch_and_summarize(
         summary_blocks=build_summary_blocks(parsed.summary),
         summary_text=summary_text,
         detail_blocks=build_detail_blocks(parsed.detail),
-        detail_text=parsed.detail,
+        detail_text=convert_markdown_to_mrkdwn(parsed.detail),
     )
