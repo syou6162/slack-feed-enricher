@@ -63,6 +63,11 @@ class TestEscapeSpecialCharacters:
         result = convert_markdown_to_mrkdwn("[a < b](https://example.com)")
         assert result == "<https://example.com|a &lt; b>"
 
+    def test_greater_than_in_link_text(self) -> None:
+        """リンクテキスト内の > がエスケープされる"""
+        result = convert_markdown_to_mrkdwn("[a > b](https://example.com)")
+        assert result == "<https://example.com|a &gt; b>"
+
     def test_ampersand_in_url_preserved(self) -> None:
         """URL部分の & はそのまま保持"""
         result = convert_markdown_to_mrkdwn("[text](https://example.com?a=1&b=2)")

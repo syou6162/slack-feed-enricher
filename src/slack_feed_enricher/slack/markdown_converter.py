@@ -18,7 +18,6 @@ def _escape_slack_special_chars(text: str) -> str:
     - コードブロック(```)およびインラインコード(`)内はエスケープしない
     """
     code_block_pattern = re.compile(r"(```[\s\S]*?```|`[^`]+`)")
-    slack_link_pattern = re.compile(r"<([^|>]+)\|([^>]+)>")
 
     parts = code_block_pattern.split(text)
     result: list[str] = []
@@ -27,29 +26,74 @@ def _escape_slack_special_chars(text: str) -> str:
         if i % 2 == 1:
             result.append(part)
         else:
-            result.append(_escape_non_code_part(part, slack_link_pattern))
+            result.append(_escape_non_code_part(part))
 
     return "".join(result)
 
 
-def _escape_non_code_part(text: str, slack_link_pattern: re.Pattern[str]) -> str:
+def _escape_non_code_part(text: str) -> str:
     """コードブロック外のテキストをエスケープする。
 
-    re.splitでキャプチャグループを使うと、セグメントは
-    [text, url, link_text, text, url, link_text, ..., text] の形になる。
-    3個ずつ（通常テキスト, URL, リンクテキスト）を処理する。
+    Slackリンク<url|text>を手動パースし、text部分の>にも対応する。
+    リンクの終端は、|の後から最後の>を探すことで特定する。
     """
-    segments = slack_link_pattern.split(text)
     result: list[str] = []
+    pos = 0
 
-    i = 0
-    while i < len(segments):
-        result.append(_escape_text(segments[i]))
-        if i + 2 < len(segments):
-            url = segments[i + 1]
-            link_text = segments[i + 2]
-            result.append(f"<{url}|{_escape_text(link_text)}>")
-        i += 3
+    while pos < len(text):
+        # 次の < を探す
+        open_pos = text.find("<", pos)
+        if open_pos == -1:
+            # リンクなし: 残りテキストをエスケープ
+            result.append(_escape_text(text[pos:]))
+            break
+
+        # < の前のテキストをエスケープ
+        result.append(_escape_text(text[pos:open_pos]))
+
+        # | を探す（URLとテキストの区切り）
+        pipe_pos = text.find("|", open_pos + 1)
+        # > を探す（リンク終端）
+        close_pos = text.find(">", open_pos + 1)
+
+        if pipe_pos != -1 and close_pos != -1 and pipe_pos < close_pos:
+            # <url|text> 形式: text部分に > や < が含まれうるため、
+            # 次のSlackリンク開始パターン(<http, <mailto)より前の最後の > を終端とする
+            search_end = len(text)
+            search_from = pipe_pos + 1
+            while True:
+                next_open = text.find("<", search_from)
+                if next_open == -1:
+                    break
+                after = text[next_open + 1:]
+                if after.startswith(("http://", "https://", "mailto:")):
+                    search_end = next_open
+                    break
+                search_from = next_open + 1
+            final_close = text.rfind(">", pipe_pos + 1, search_end)
+            if final_close >= 0:
+                url = text[open_pos + 1:pipe_pos]
+                link_text = text[pipe_pos + 1:final_close]
+                result.append(f"<{url}|{_escape_text(link_text)}>")
+                pos = final_close + 1
+            else:
+                # > が見つからない: < をエスケープして進む
+                result.append(_escape_text("<"))
+                pos = open_pos + 1
+        elif close_pos != -1:
+            inner = text[open_pos + 1:close_pos]
+            if inner.startswith(("http://", "https://", "mailto:")):
+                # <url> 形式（パイプなし）: そのまま保持
+                result.append(text[open_pos:close_pos + 1])
+                pos = close_pos + 1
+            else:
+                # URLでない: < をエスケープして進む
+                result.append(_escape_text("<"))
+                pos = open_pos + 1
+        else:
+            # 閉じ > なし: < をエスケープして進む
+            result.append(_escape_text("<"))
+            pos = open_pos + 1
 
     return "".join(result)
 
