@@ -154,7 +154,7 @@ def _build_hatebu_comments_for_prompt(entry: HatebuEntry) -> str:
     return "\n".join(lines)
 
 
-def build_meta_blocks(meta: Meta) -> list[SlackBlock]:
+def build_meta_blocks(meta: Meta, hatebu_entry: HatebuEntry | None = None) -> list[SlackBlock]:
     """MetaモデルからSlack Block Kitブロック配列を生成する
 
     titleをSlackHeaderBlockで表示（summary/detailと統一）し、
@@ -162,6 +162,7 @@ def build_meta_blocks(meta: Meta) -> list[SlackBlock]:
 
     Args:
         meta: Metaモデルインスタンス
+        hatebu_entry: はてなブックマークエントリー情報（Noneなら省略）
 
     Returns:
         SlackBlockのリスト（headerブロック + fields section）
@@ -198,6 +199,11 @@ def build_meta_blocks(meta: Meta) -> list[SlackBlock]:
         fields.extend([
             SlackTextObject(type="mrkdwn", text="*Published*"),
             SlackTextObject(type="plain_text", text=meta.published_at),
+        ])
+    if hatebu_entry is not None:
+        fields.extend([
+            SlackTextObject(type="mrkdwn", text="*Hatena Bookmark*"),
+            SlackTextObject(type="plain_text", text=f"\U0001f4da {hatebu_entry.count} users / \U0001f4ac {hatebu_entry.comment_count} comments"),
         ])
 
     metadata_section = SlackSectionBlock(fields=fields)

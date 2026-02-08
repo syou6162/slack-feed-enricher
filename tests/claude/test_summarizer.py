@@ -719,6 +719,85 @@ class TestBuildMetaBlocks:
         header_block = blocks[0]
         assert header_block.text.text == title_150
 
+    def test_hatebu_entry_adds_bookmark_field(self) -> None:
+        """hatebu_entry付き → fieldsにはてブ情報が1フィールド（2要素）追加されること"""
+        meta = Meta(
+            title="テスト記事",
+            url="https://example.com/article",
+            author=None,
+            category_large=None,
+            category_medium=None,
+            published_at=None,
+        )
+        entry = HatebuEntry(
+            count=5,
+            bookmarks=[
+                HatebuBookmark(user="user1", comment="良い", timestamp="2024/01/15 10:30"),
+                HatebuBookmark(user="user2", comment="", timestamp="2024/01/15 11:00"),
+                HatebuBookmark(user="user3", comment="参考になった", timestamp="2024/01/15 12:00"),
+            ],
+        )
+        blocks = build_meta_blocks(meta, hatebu_entry=entry)
+        fields_block = blocks[1]
+        assert isinstance(fields_block, SlackSectionBlock)
+        assert fields_block.fields is not None
+        # URL(2) + はてブ(2) = 4要素
+        assert len(fields_block.fields) == 4
+        assert SlackTextObject(type="mrkdwn", text="*Hatena Bookmark*") in fields_block.fields
+        assert SlackTextObject(type="plain_text", text="\U0001f4da 5 users / \U0001f4ac 2 comments") in fields_block.fields
+
+    def test_hatebu_entry_with_all_meta_fields(self) -> None:
+        """全メタフィールド + hatebu_entry → fields上限10要素以内で収まること"""
+        meta = Meta(
+            title="テスト",
+            url="https://example.com",
+            author="taro",
+            category_large="Tech",
+            category_medium="Python",
+            published_at="2025-01-15T10:30:00Z",
+        )
+        entry = HatebuEntry(
+            count=10,
+            bookmarks=[HatebuBookmark(user="u1", comment="good", timestamp="2024/01/15 10:30")],
+        )
+        blocks = build_meta_blocks(meta, hatebu_entry=entry)
+        fields_block = blocks[1]
+        assert fields_block.fields is not None
+        # URL(2) + Author(2) + Category(2) + Published(2) + Hatena(2) = 10要素（Slack上限ちょうど）
+        assert len(fields_block.fields) == 10
+
+    def test_hatebu_entry_none_no_bookmark_field(self) -> None:
+        """hatebu_entry=None → はてブフィールドが追加されないこと（従来通り）"""
+        meta = Meta(
+            title="テスト",
+            url="https://example.com",
+            author=None,
+            category_large=None,
+            category_medium=None,
+            published_at=None,
+        )
+        blocks = build_meta_blocks(meta, hatebu_entry=None)
+        fields_block = blocks[1]
+        assert fields_block.fields is not None
+        assert len(fields_block.fields) == 2  # URLのみ
+
+    def test_hatebu_entry_zero_count(self) -> None:
+        """hatebu_entry count=0 → 0 users / 0 comments と表示されること"""
+        meta = Meta(
+            title="テスト",
+            url="https://example.com",
+            author=None,
+            category_large=None,
+            category_medium=None,
+            published_at=None,
+        )
+        entry = HatebuEntry(count=0, bookmarks=[])
+        blocks = build_meta_blocks(meta, hatebu_entry=entry)
+        fields_block = blocks[1]
+        assert fields_block.fields is not None
+        assert len(fields_block.fields) == 4  # URL(2) + Hatena(2)
+        assert SlackTextObject(type="plain_text", text="\U0001f4da 0 users / \U0001f4ac 0 comments") in fields_block.fields
+
 
 class TestBuildSummaryBlocks:
     """build_summary_blocks関数のテスト"""
