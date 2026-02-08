@@ -9,6 +9,7 @@ import pytest
 from claude_agent_sdk import ResultMessage
 
 from slack_feed_enricher.claude.summarizer import EnrichResult, Meta, Summary, build_detail_blocks, build_meta_blocks, build_summary_blocks
+from slack_feed_enricher.hatebu.models import HatebuBookmark, HatebuEntry
 from slack_feed_enricher.slack import SlackMessage
 from slack_feed_enricher.slack.exceptions import SlackAPIError
 from slack_feed_enricher.worker import QueryFunc, enrich_and_reply_pending_messages, run, send_enriched_messages
@@ -242,3 +243,115 @@ async def test_enrich_and_reply_pending_messages_timeout() -> None:
     assert result.success_count == 1
     assert result.remaining_count == 4
     assert result.processed_count == 1
+
+
+@pytest.mark.asyncio
+async def test_enrich_and_reply_with_hatebu_client() -> None:
+    """hatebu_client付きでfetch_entryが呼ばれ、結果がfetch_and_summarizeに渡されること"""
+    mock_slack_client = AsyncMock()
+    mock_slack_client.fetch_unreplied_messages.return_value = [
+        SlackMessage(ts="1", text="<https://example.com/article>", reply_count=0),
+    ]
+    mock_slack_client.post_thread_reply.return_value = "reply_ts"
+
+    mock_query_func = create_mock_query_func()
+
+    mock_hatebu_client = AsyncMock()
+    mock_hatebu_client.fetch_entry.return_value = HatebuEntry(
+        count=3,
+        bookmarks=[
+            HatebuBookmark(user="user1", comment="良い記事", timestamp="2024/01/15 10:30"),
+        ],
+    )
+
+    result = await enrich_and_reply_pending_messages(
+        slack_client=mock_slack_client,
+        query_func=mock_query_func,
+        channel_id="C0123456789",
+        message_limit=100,
+        hatebu_client=mock_hatebu_client,
+    )
+
+    assert result.success_count == 1
+    assert result.error_count == 0
+    # fetch_entryがURLで呼ばれたこと
+    mock_hatebu_client.fetch_entry.assert_called_once_with("https://example.com/article")
+
+
+@pytest.mark.asyncio
+async def test_enrich_and_reply_hatebu_client_none_skips_fetch() -> None:
+    """hatebu_client=Noneの場合、fetch_entryは呼ばれない（従来通り動作）"""
+    mock_slack_client = AsyncMock()
+    mock_slack_client.fetch_unreplied_messages.return_value = [
+        SlackMessage(ts="1", text="<https://example.com/article>", reply_count=0),
+    ]
+    mock_slack_client.post_thread_reply.return_value = "reply_ts"
+
+    mock_query_func = create_mock_query_func()
+
+    result = await enrich_and_reply_pending_messages(
+        slack_client=mock_slack_client,
+        query_func=mock_query_func,
+        channel_id="C0123456789",
+        message_limit=100,
+        hatebu_client=None,
+    )
+
+    assert result.success_count == 1
+    assert result.error_count == 0
+
+
+@pytest.mark.asyncio
+async def test_enrich_and_reply_hatebu_client_error_continues() -> None:
+    """hatebu_client.fetch_entryがExceptionを投げても処理が続行されること（フェイルオープン）"""
+    mock_slack_client = AsyncMock()
+    mock_slack_client.fetch_unreplied_messages.return_value = [
+        SlackMessage(ts="1", text="<https://example.com/article>", reply_count=0),
+    ]
+    mock_slack_client.post_thread_reply.return_value = "reply_ts"
+
+    mock_query_func = create_mock_query_func()
+
+    mock_hatebu_client = AsyncMock()
+    mock_hatebu_client.fetch_entry.side_effect = Exception("Hatena API error")
+
+    result = await enrich_and_reply_pending_messages(
+        slack_client=mock_slack_client,
+        query_func=mock_query_func,
+        channel_id="C0123456789",
+        message_limit=100,
+        hatebu_client=mock_hatebu_client,
+    )
+
+    # はてブ取得が失敗してもhatebu_entry=Noneで要約処理は続行される
+    assert result.success_count == 1
+    assert result.error_count == 0
+
+
+@pytest.mark.asyncio
+async def test_run_passes_hatebu_client() -> None:
+    """run()がhatebu_clientをenrich_and_reply_pending_messagesに渡すこと"""
+    mock_slack_client = AsyncMock()
+    mock_slack_client.fetch_unreplied_messages.return_value = []
+
+    mock_query_func = create_mock_query_func()
+    mock_hatebu_client = AsyncMock()
+
+    task = asyncio.create_task(
+        run(
+            slack_client=mock_slack_client,
+            query_func=mock_query_func,
+            channel_id="C0123456789",
+            message_limit=100,
+            polling_interval=1,
+            hatebu_client=mock_hatebu_client,
+        )
+    )
+
+    await asyncio.sleep(0.1)
+    task.cancel()
+
+    with suppress(asyncio.CancelledError):
+        await task
+
+    mock_slack_client.fetch_unreplied_messages.assert_called()
