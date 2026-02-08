@@ -860,10 +860,10 @@ class TestSplitMrkdwnText:
         """
         # 1チャンク目で改行分割される部分（2999文字+改行）
         first_part = "あ" * 2999 + "\n"
-        # 2チャンク目の先頭がSlackリンク。リンクが3000文字超なので強制分割パスに入る
-        url = "https://example.com/" + "a" * 2980
-        link = f"<{url}|テスト>"
-        text = first_part + link
+        # 2チャンク目の先頭がSlackリンク（2996文字）+ 末尾テキストで合計3000文字超
+        url = "https://example.com/" + "a" * 2970
+        link = f"<{url}|テスト>"  # 2996文字
+        text = first_part + link + "末尾テキスト"
 
         chunks = _split_mrkdwn_text(text)
 
@@ -872,6 +872,21 @@ class TestSplitMrkdwnText:
             open_count = chunk.count("<")
             close_count = chunk.count(">")
             assert open_count == close_count, f"リンク構文が壊れている: {chunk[:100]}..."
+
+    def test_oversized_slack_link_force_split_within_limit(self) -> None:
+        """3000文字を超えるSlackリンクが強制分割され、各チャンクが3000文字以内であること"""
+        # リンク全体が3000文字超（異常に長いURL）
+        url = "https://example.com/" + "a" * 3500
+        link = f"<{url}|テスト>"
+        text = link
+
+        chunks = _split_mrkdwn_text(text)
+
+        # 各チャンクが3000文字以内であること（Slack投稿エラー回避が最優先）
+        for i, chunk in enumerate(chunks):
+            assert len(chunk) <= 3000, (
+                f"チャンク{i}が3000文字を超えている: {len(chunk)}文字"
+            )
 
     def test_newline_inside_code_block_not_used_for_split(self) -> None:
         """コードブロック内の改行が分割ポイントとして使われないこと"""

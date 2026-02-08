@@ -241,6 +241,39 @@ def _find_safe_newline(remaining: str, max_length: int, code_ranges: list[tuple[
     return -1
 
 
+def _adjust_split_for_slack_link(remaining: str, split_pos: int, max_length: int, reopen_cost: int) -> int:
+    """Slackリンクの途中で分割しないよう分割位置を調整する。
+
+    Args:
+        remaining: 分割対象テキスト
+        split_pos: 現在の分割候補位置
+        max_length: 1チャンクの最大文字数
+        reopen_cost: コードブロック再オープンのコスト
+
+    Returns:
+        調整後の分割位置
+    """
+    if not _is_inside_slack_link(remaining, split_pos):
+        return split_pos
+
+    link_start = remaining.rfind("<", 0, split_pos)
+    if link_start < 0:
+        return split_pos
+
+    if link_start > 0:
+        return link_start
+
+    # リンクがチャンク先頭（位置0）の場合、リンク全体を含める
+    link_end = remaining.find(">", split_pos)
+    if link_end >= 0:
+        link_whole = min(link_end + 1, len(remaining))
+        if link_whole + reopen_cost <= max_length:
+            return link_whole
+
+    # リンク全体がmax_lengthを超える場合は強制分割
+    return split_pos
+
+
 def _split_mrkdwn_text(text: str, max_length: int = 3000) -> list[str]:
     """mrkdwnテキストを構文を壊さないように分割する。
 
@@ -300,17 +333,7 @@ def _split_mrkdwn_text(text: str, max_length: int = 3000) -> list[str]:
         split_pos = effective_max - close_cost
 
         # Slackリンクの途中を避ける
-        if _is_inside_slack_link(remaining, split_pos):
-            link_start = remaining.rfind("<", 0, split_pos)
-            if link_start >= 0:
-                if link_start > 0:
-                    # リンクの手前で分割
-                    split_pos = link_start
-                else:
-                    # リンクがチャンク先頭（位置0）の場合、リンク全体を含める
-                    link_end = remaining.find(">", split_pos)
-                    if link_end >= 0:
-                        split_pos = min(link_end + 1, len(remaining))
+        split_pos = _adjust_split_for_slack_link(remaining, split_pos, max_length, reopen_cost)
 
         # エンティティの途中を避ける
         split_pos = _adjust_for_entity_boundary(remaining, split_pos)
