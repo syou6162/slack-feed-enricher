@@ -1,7 +1,10 @@
 """Claude Agent SDKを使用したURL要約機能"""
 
+from __future__ import annotations
+
 import logging
 from collections.abc import AsyncIterator, Callable
+from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
@@ -12,6 +15,7 @@ from slack_feed_enricher.claude.exceptions import (
     NoResultMessageError,
     StructuredOutputError,
 )
+from slack_feed_enricher.hatebu.models import HatebuEntry
 from slack_feed_enricher.slack.blocks import (
     SlackBlock,
     SlackHeaderBlock,
@@ -65,12 +69,17 @@ OUTPUT_SCHEMA = {
 }
 
 
-def build_summary_prompt(url: str, supplementary_urls: list[str] | None = None) -> str:
+def build_summary_prompt(
+    url: str,
+    supplementary_urls: list[str] | None = None,
+    hatebu_entry: HatebuEntry | None = None,
+) -> str:
     """要約用プロンプトを構築する
 
     Args:
         url: メインURL（記事本体）
         supplementary_urls: 補足URL（引用先、ツール説明等）
+        hatebu_entry: はてなブックマークエントリー情報（Noneなら省略）
 
     Returns:
         構築されたプロンプト文字列
@@ -102,10 +111,45 @@ def build_summary_prompt(url: str, supplementary_urls: list[str] | None = None) 
             "引用元の詳細情報なので、要約に適宜取り込んでください。"
         )
 
+    if hatebu_entry is not None and hatebu_entry.comment_count > 0:
+        filepath = _write_hatebu_comments_to_file(hatebu_entry)
+        if filepath:
+            parts.append("")
+            parts.append(f"以下のファイルにはてなブックマークコメントがあります：\n{filepath}")
+            parts.append("")
+            parts.append("記事要約の際にこれらのコメントも参考にしてください。")
+
     return "\n".join(parts)
 
 
-def build_meta_blocks(meta: Meta) -> list[SlackBlock]:
+_HATEBU_COMMENTS_FILE = ".hatena_bookmark/hatebu_comments.txt"
+
+
+def _write_hatebu_comments_to_file(entry: HatebuEntry) -> str:
+    """はてブコメントをファイルに出力し、ファイルパスを返す。
+
+    コメント付きブックマークが0件の場合は空文字列を返す。
+    ファイル書き込みに失敗した場合も空文字列を返す（フェイルオープン）。
+    """
+    comments = entry.comments
+    if not comments:
+        return ""
+
+    try:
+        filepath = Path(_HATEBU_COMMENTS_FILE)
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write("# はてなブックマークコメント\n\n")
+            for bookmark in comments:
+                f.write(f"- **{bookmark.user}**: {bookmark.comment}\n")
+    except OSError:
+        logger.warning("はてブコメントファイルの書き込みに失敗しました: %s", _HATEBU_COMMENTS_FILE)
+        return ""
+
+    return _HATEBU_COMMENTS_FILE
+
+
+def build_meta_blocks(meta: Meta, hatebu_entry: HatebuEntry | None = None) -> list[SlackBlock]:
     """MetaモデルからSlack Block Kitブロック配列を生成する
 
     titleをSlackHeaderBlockで表示（summary/detailと統一）し、
@@ -113,6 +157,7 @@ def build_meta_blocks(meta: Meta) -> list[SlackBlock]:
 
     Args:
         meta: Metaモデルインスタンス
+        hatebu_entry: はてなブックマークエントリー情報（Noneなら省略）
 
     Returns:
         SlackBlockのリスト（headerブロック + fields section）
@@ -149,6 +194,11 @@ def build_meta_blocks(meta: Meta) -> list[SlackBlock]:
         fields.extend([
             SlackTextObject(type="mrkdwn", text="*Published*"),
             SlackTextObject(type="plain_text", text=meta.published_at),
+        ])
+    if hatebu_entry is not None:
+        fields.extend([
+            SlackTextObject(type="mrkdwn", text="*Hatena Bookmark*"),
+            SlackTextObject(type="plain_text", text=f"\U0001f4da {hatebu_entry.count} users / \U0001f4ac {hatebu_entry.comment_count} comments"),
         ])
 
     metadata_section = SlackSectionBlock(fields=fields)
@@ -417,11 +467,12 @@ def build_detail_blocks(detail: str) -> list[SlackBlock]:
     return sections
 
 
-def format_meta_block(meta: dict[str, Any]) -> str:
+def format_meta_block(meta: dict[str, Any], hatebu_entry: HatebuEntry | None = None) -> str:
     """メタ情報ブロックをフォーマットする
 
     Args:
         meta: メタ情報辞書（title, url, author, category_large, category_medium, published_at）
+        hatebu_entry: はてなブックマークエントリー情報（Noneなら省略）
 
     Returns:
         フォーマットされたメタ情報文字列
@@ -444,6 +495,9 @@ def format_meta_block(meta: dict[str, Any]) -> str:
 
     lines.append(f"投稿日時: {meta['published_at'] or '不明'}")
 
+    if hatebu_entry is not None:
+        lines.append(f"はてなブックマーク: {hatebu_entry.count} users / {hatebu_entry.comment_count} comments")
+
     return "\n".join(lines)
 
 
@@ -459,10 +513,43 @@ def format_summary_block(summary: dict[str, Any]) -> str:
     return "\n".join(f"- {point}" for point in summary["points"])
 
 
+_DETAIL_TEXT_MAX_CHARS = 40000
+
+
+def _build_hatebu_comments_for_detail(entry: HatebuEntry, remaining_chars: int) -> str:
+    """detail用のはてブコメントMarkdownセクションを構築する。
+
+    コメント付きブックマークが0件の場合は空文字列を返す。
+    remaining_charsを超えないようにコメント単位で打ち切る。
+    """
+    comments = entry.comments
+    if not comments:
+        return ""
+
+    header = "\n\n## はてなブックマークコメント\n"
+    total_chars = len(header)
+    if total_chars > remaining_chars:
+        return ""
+
+    lines = [header]
+    for bookmark in comments:
+        line = f"- **{bookmark.user}**: {bookmark.comment}\n"
+        if total_chars + len(line) > remaining_chars:
+            break
+        lines.append(line)
+        total_chars += len(line)
+
+    if len(lines) == 1:
+        return ""
+
+    return "".join(lines).rstrip("\n")
+
+
 async def fetch_and_summarize(
     query_func: QueryFunc,
     url: str,
     supplementary_urls: list[str] | None = None,
+    hatebu_entry: HatebuEntry | None = None,
 ) -> EnrichResult:
     """URLの内容をWebFetchで取得し、構造化された要約結果を返す
 
@@ -470,6 +557,7 @@ async def fetch_and_summarize(
         query_func: claude_agent_sdk.query関数（またはモック）
         url: 要約対象のURL
         supplementary_urls: 補足URL（引用先、ツール説明等）
+        hatebu_entry: はてなブックマークエントリー情報（Noneなら省略）
 
     Returns:
         EnrichResult: Block Kit形式のブロックとフォールバックテキストを含む結果
@@ -480,11 +568,14 @@ async def fetch_and_summarize(
         ClaudeAPIError: Claude APIでエラーが発生した場合
         StructuredOutputError: 構造化出力が取得できなかった場合
     """
+    # 前回のコメントファイルを削除
+    Path(_HATEBU_COMMENTS_FILE).unlink(missing_ok=True)
+
     if not url:
         raise ValueError("URLが空です")
 
     # プロンプト構築
-    prompt = build_summary_prompt(url, supplementary_urls)
+    prompt = build_summary_prompt(url, supplementary_urls, hatebu_entry=hatebu_entry)
 
     # ClaudeAgentOptions作成
     options = ClaudeAgentOptions(
@@ -520,14 +611,21 @@ async def fetch_and_summarize(
     except ValidationError as e:
         raise StructuredOutputError(f"構造化出力のバリデーションに失敗しました: {e}") from e
 
-    meta_text = format_meta_block(parsed.meta.model_dump())
+    # detailにはてブコメント全文を結合（結合後のdetail文字列を一度だけ作る）
+    detail = parsed.detail
+    if hatebu_entry is not None:
+        remaining = _DETAIL_TEXT_MAX_CHARS - len(detail)
+        hatebu_detail = _build_hatebu_comments_for_detail(hatebu_entry, remaining)
+        detail = detail + hatebu_detail
+
+    meta_text = format_meta_block(parsed.meta.model_dump(), hatebu_entry=hatebu_entry)
     summary_text = format_summary_block(parsed.summary.model_dump())
 
     return EnrichResult(
-        meta_blocks=build_meta_blocks(parsed.meta),
+        meta_blocks=build_meta_blocks(parsed.meta, hatebu_entry=hatebu_entry),
         meta_text=meta_text,
         summary_blocks=build_summary_blocks(parsed.summary),
         summary_text=summary_text,
-        detail_blocks=build_detail_blocks(parsed.detail),
-        detail_text=convert_markdown_to_mrkdwn(parsed.detail),
+        detail_blocks=build_detail_blocks(detail),
+        detail_text=convert_markdown_to_mrkdwn(detail)[:_DETAIL_TEXT_MAX_CHARS],
     )
