@@ -428,8 +428,8 @@ class TestFetchAndSummarize:
         assert "テストコメント" in all_detail_text
 
     @pytest.mark.asyncio
-    async def test_hatebu_prompt_includes_comments(self) -> None:
-        """hatebu_entry付き → プロンプトにはてブコメントが含まれること"""
+    async def test_hatebu_prompt_includes_file_reference(self) -> None:
+        """hatebu_entry付き → プロンプトにファイルパス参照が含まれること"""
         mock_result = AsyncMock(spec=ResultMessage)
         mock_result.is_error = False
         mock_result.structured_output = {
@@ -458,8 +458,8 @@ class TestFetchAndSummarize:
         await fetch_and_summarize(mock_query, "https://example.com", hatebu_entry=entry)
 
         assert len(received_prompts) == 1
-        assert "commenter" in received_prompts[0]
-        assert "素晴らしい" in received_prompts[0]
+        assert ".claude_work/hatebu_comments.txt" in received_prompts[0]
+        assert "このコメントを参考に記事を要約してください" in received_prompts[0]
 
     @pytest.mark.asyncio
     async def test_hatebu_no_comments_no_detail_section(self) -> None:
@@ -559,7 +559,7 @@ class TestBuildSummaryPrompt:
         assert prompt_explicit_none == prompt_default
 
     def test_hatebu_entry_with_comments(self) -> None:
-        """hatebu_entry付き → プロンプト末尾にはてブコメントセクションが追加される"""
+        """hatebu_entry付き → プロンプトにファイルパス参照が追加される"""
 
         entry = HatebuEntry(
             count=3,
@@ -570,13 +570,8 @@ class TestBuildSummaryPrompt:
             ],
         )
         prompt = build_summary_prompt("https://example.com/article", hatebu_entry=entry)
-        assert "はてなブックマークコメント" in prompt
-        assert "user1" in prompt
-        assert "良い記事" in prompt
-        assert "user3" in prompt
-        assert "参考になった" in prompt
-        # 空コメントのuser2は含まれない
-        assert "user2" not in prompt
+        assert ".claude_work/hatebu_comments.txt" in prompt
+        assert "このコメントを参考に記事を要約してください" in prompt
 
     def test_hatebu_entry_none_no_hatebu_section(self) -> None:
         """hatebu_entry=None → はてブコメントセクションなし（従来通り）"""
@@ -586,7 +581,7 @@ class TestBuildSummaryPrompt:
         assert "はてなブックマークコメント" not in prompt_default
 
     def test_hatebu_entry_with_no_comments(self) -> None:
-        """hatebu_entryのコメントが全て空 → はてブコメントセクションが追加されない"""
+        """hatebu_entryのコメントが全て空 → ファイルパス参照が追加されない"""
 
         entry = HatebuEntry(
             count=2,
@@ -596,34 +591,7 @@ class TestBuildSummaryPrompt:
             ],
         )
         prompt = build_summary_prompt("https://example.com/article", hatebu_entry=entry)
-        assert "はてなブックマークコメント" not in prompt
-
-    def test_hatebu_entry_max_20_comments_in_prompt(self) -> None:
-        """プロンプトに含めるコメントは最大20件に制限される"""
-
-        bookmarks = [HatebuBookmark(user=f"user{i}", comment=f"コメント{i}", timestamp="2024/01/15 10:30") for i in range(30)]
-        entry = HatebuEntry(count=30, bookmarks=bookmarks)
-        prompt = build_summary_prompt("https://example.com/article", hatebu_entry=entry)
-        # 最初の20件は含まれる
-        assert "user0" in prompt
-        assert "user19" in prompt
-        # 21件目以降は含まれない
-        assert "user20" not in prompt
-
-    def test_hatebu_entry_comments_truncated_at_4000_chars(self) -> None:
-        """プロンプトのコメントが合計4000文字で打ち切られる"""
-
-        # 1コメント500文字 × 10件 = 5000文字（4000文字を超える）
-        bookmarks = [HatebuBookmark(user=f"user{i}", comment="あ" * 500, timestamp="2024/01/15 10:30") for i in range(10)]
-        entry = HatebuEntry(count=10, bookmarks=bookmarks)
-        prompt = build_summary_prompt("https://example.com/article", hatebu_entry=entry)
-        # はてブコメントセクションが存在する
-        assert "はてなブックマークコメント" in prompt
-        # 全10件は含まれないはず（4000文字制限で打ち切り）
-        hatebu_section = prompt.split("はてなブックマークコメント")[1]
-        # user0は含まれるがuser9は含まれない（4000文字で打ち切り）
-        assert "user0" in hatebu_section
-        assert "user9" not in hatebu_section
+        assert ".claude_work/hatebu_comments.txt" not in prompt
 
 
 class TestFormatMetaBlock:

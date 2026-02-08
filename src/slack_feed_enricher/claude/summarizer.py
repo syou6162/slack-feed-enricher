@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator, Callable
+from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
@@ -110,48 +111,42 @@ def build_summary_prompt(
             "引用元の詳細情報なので、要約に適宜取り込んでください。"
         )
 
-    if hatebu_entry is not None:
-        hatebu_comments = _build_hatebu_comments_for_prompt(hatebu_entry)
-        if hatebu_comments:
+    if hatebu_entry is not None and hatebu_entry.comment_count > 0:
+        filepath = _write_hatebu_comments_to_file(hatebu_entry)
+        if filepath:
             parts.append("")
-            parts.append(hatebu_comments)
+            parts.append(f"以下のファイルにはてなブックマークコメントがあります：\n{filepath}")
+            parts.append("")
+            parts.append("このコメントを参考に記事を要約してください。")
 
     return "\n".join(parts)
 
 
-_PROMPT_COMMENT_MAX_COUNT = 20
-_PROMPT_COMMENT_MAX_CHARS = 4000
+_HATEBU_COMMENTS_FILE = ".claude_work/hatebu_comments.txt"
 
 
-def _build_hatebu_comments_for_prompt(entry: HatebuEntry) -> str:
-    """プロンプト用のはてブコメントセクションを構築する。
+def _write_hatebu_comments_to_file(entry: HatebuEntry) -> str:
+    """はてブコメントをファイルに出力し、ファイルパスを返す。
 
-    最大20件かつ合計4000文字で打ち切る。
     コメント付きブックマークが0件の場合は空文字列を返す。
+    ファイル書き込みに失敗した場合も空文字列を返す（フェイルオープン）。
     """
     comments = entry.comments
     if not comments:
         return ""
 
-    lines = ["はてなブックマークコメント（要約に反映してください）:"]
-    total_chars = 0
-    included = 0
-
-    for bookmark in comments:
-        if included >= _PROMPT_COMMENT_MAX_COUNT:
-            break
-        line = f"- {bookmark.user}: {bookmark.comment}"
-        line_len = len(line)
-        if total_chars + line_len > _PROMPT_COMMENT_MAX_CHARS:
-            break
-        lines.append(line)
-        total_chars += line_len
-        included += 1
-
-    if included == 0:
+    try:
+        filepath = Path(_HATEBU_COMMENTS_FILE)
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write("# はてなブックマークコメント\n\n")
+            for bookmark in comments:
+                f.write(f"- {bookmark.user}: {bookmark.comment} ({bookmark.timestamp})\n")
+    except OSError:
+        logger.warning("はてブコメントファイルの書き込みに失敗しました: %s", _HATEBU_COMMENTS_FILE)
         return ""
 
-    return "\n".join(lines)
+    return _HATEBU_COMMENTS_FILE
 
 
 def build_meta_blocks(meta: Meta, hatebu_entry: HatebuEntry | None = None) -> list[SlackBlock]:
