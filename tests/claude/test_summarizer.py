@@ -12,6 +12,7 @@ from slack_feed_enricher.claude.summarizer import (
     Meta,
     StructuredOutput,
     Summary,
+    _split_mrkdwn_text,
     build_detail_blocks,
     build_meta_blocks,
     build_summary_blocks,
@@ -150,10 +151,10 @@ class TestFetchAndSummarize:
                     ]),
                 ]),
             ],
-            detail_text="# 詳細\n記事の詳細内容",
+            detail_text="*詳細*\n記事の詳細内容",
             detail_blocks=[
                 SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Details")),
-                SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text="# 詳細\n記事の詳細内容")),
+                SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text="*詳細*\n記事の詳細内容")),
             ],
         )
         assert result == expected
@@ -216,10 +217,10 @@ class TestFetchAndSummarize:
                     ]),
                 ]),
             ],
-            detail_text="# 詳細\n記事の詳細内容",
+            detail_text="*詳細*\n記事の詳細内容",
             detail_blocks=[
                 SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Details")),
-                SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text="# 詳細\n記事の詳細内容")),
+                SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text="*詳細*\n記事の詳細内容")),
             ],
         )
         assert result == expected
@@ -704,9 +705,9 @@ class TestBuildSummaryBlocks:
 class TestBuildDetailBlocks:
     """build_detail_blocks関数のテスト"""
 
-    def test_returns_header_and_section(self) -> None:
-        """detail文字列からheaderブロック（Details）+sectionブロックの2ブロックが生成されること"""
-        detail = "# 詳細\n記事の詳細内容"
+    def test_returns_header_and_section_with_mrkdwn_conversion(self) -> None:
+        """Markdownがmrkdwnに変換されてsectionブロックに格納されること"""
+        detail = "**bold** and [link](https://example.com)"
         blocks = build_detail_blocks(detail)
 
         assert len(blocks) == 2
@@ -716,28 +717,38 @@ class TestBuildDetailBlocks:
         assert isinstance(header_block, SlackHeaderBlock)
         assert header_block.text == SlackTextObject(type="plain_text", text="Details")
 
-        # 2ブロック目: detail sectionブロック
+        # 2ブロック目: mrkdwn変換後のsectionブロック
         detail_block = blocks[1]
         assert isinstance(detail_block, SlackSectionBlock)
         assert detail_block.text == SlackTextObject(
             type="mrkdwn",
-            text="# 詳細\n記事の詳細内容",
+            text="*bold* and <https://example.com|link>",
         )
 
-    def test_detail_over_3000_chars_split_into_multiple_sections(self) -> None:
-        """3000文字を超えるdetailが複数sectionに分割されること"""
-        detail = "あ" * 7000
+    def test_split_at_newline_boundary(self) -> None:
+        """3000文字超のdetailが改行位置で分割されること"""
+        # 2900文字 + 改行 + 200文字 = 3101文字（変換後）
+        line1 = "あ" * 2900
+        line2 = "い" * 200
+        detail = f"{line1}\n{line2}"
         blocks = build_detail_blocks(detail)
 
-        # header + 3 sections (3000 + 3000 + 1000)
-        assert len(blocks) == 4
+        assert len(blocks) == 3
         assert isinstance(blocks[0], SlackHeaderBlock)
-        assert isinstance(blocks[1], SlackSectionBlock)
-        assert isinstance(blocks[2], SlackSectionBlock)
-        assert isinstance(blocks[3], SlackSectionBlock)
+        # 改行位置で分割されるため、1つ目は2900文字
+        assert blocks[1].text.text == line1
+        # 2つ目は200文字
+        assert blocks[2].text.text == line2
+
+    def test_split_long_text_without_newlines(self) -> None:
+        """改行のない3000文字超のdetailが文字数ベースで強制分割されること"""
+        detail = "あ" * 4000
+        blocks = build_detail_blocks(detail)
+
+        assert len(blocks) == 3
+        assert isinstance(blocks[0], SlackHeaderBlock)
         assert len(blocks[1].text.text) == 3000
-        assert len(blocks[2].text.text) == 3000
-        assert len(blocks[3].text.text) == 1000
+        assert len(blocks[2].text.text) == 1000
 
     def test_detail_exactly_3000_chars_single_section(self) -> None:
         """ちょうど3000文字のdetailは分割されないこと"""
@@ -748,3 +759,172 @@ class TestBuildDetailBlocks:
         assert isinstance(blocks[0], SlackHeaderBlock)
         assert isinstance(blocks[1], SlackSectionBlock)
         assert len(blocks[1].text.text) == 3000
+
+    def test_entity_not_split(self) -> None:
+        """&amp;エンティティの途中で分割されないこと"""
+        # 2998文字 + "&amp;" (5文字) = 3003文字
+        prefix = "あ" * 2998
+        detail = f"{prefix}A & B"  # Markdown入力。変換後: prefix + "A &amp; B" = 2998 + 8 = 3006文字
+        blocks = build_detail_blocks(detail)
+
+        # 分割されるが、&amp;の途中では切れない
+        assert len(blocks) >= 2
+        for block in blocks[1:]:
+            text = block.text.text
+            # &amp; が途中で切れていないことを確認
+            assert "&am" not in text or "&amp;" in text
+
+    def test_multiple_sections_over_3000(self) -> None:
+        """7000文字超のdetailが適切に複数sectionに分割されること"""
+        # 2500文字 + 改行 + 2500文字 + 改行 + 2500文字 = 7502文字
+        line = "あ" * 2500
+        detail = f"{line}\n{line}\n{line}"
+        blocks = build_detail_blocks(detail)
+
+        assert isinstance(blocks[0], SlackHeaderBlock)
+        # 全sectionブロックが3000文字以下
+        for block in blocks[1:]:
+            assert isinstance(block, SlackSectionBlock)
+            assert len(block.text.text) <= 3000
+
+    def test_escape_applied_in_detail(self) -> None:
+        """detailのテキスト内の&, <, >がエスケープされること"""
+        detail = "a < b & c > d"
+        blocks = build_detail_blocks(detail)
+
+        assert blocks[1].text.text == "a &lt; b &amp; c &gt; d"
+
+
+class TestSplitMrkdwnText:
+    """_split_mrkdwn_text関数のテスト（構文保護）"""
+
+    def test_code_block_not_split(self) -> None:
+        """コードブロックが分割境界をまたがないこと（ブロック再オープン方式）"""
+        # テキスト + コードブロック（合計3000文字超）
+        prefix = "あ" * 100 + "\n"
+        code_block = "```\n" + "x" * 3000 + "\n```"
+        text = prefix + code_block
+        chunks = _split_mrkdwn_text(text)
+
+        # コードブロックが分割された場合、各チャンクで```が対になっていること
+        for chunk in chunks:
+            count = chunk.count("```")
+            assert count % 2 == 0, f"コードブロックの```が対になっていない: {chunk[:100]}..."
+
+    def test_slack_link_not_split(self) -> None:
+        """Slackリンク<url|text>が分割境界をまたがないこと"""
+        # 2990文字 + 長いリンク（合計3000文字超）
+        prefix = "あ" * 2990
+        link = "<https://example.com/very/long/path|リンクテキスト>"
+        text = prefix + link
+        chunks = _split_mrkdwn_text(text)
+
+        # リンクが途中で切れていないこと
+        for chunk in chunks:
+            # < の数と > の数が一致すること（リンク構文が壊れていない）
+            open_count = chunk.count("<")
+            close_count = chunk.count(">")
+            assert open_count == close_count, f"リンク構文が壊れている: {chunk[-100:]}"
+
+    def test_code_block_reopen_across_chunks(self) -> None:
+        """コードブロックが分割された場合、閉じて次チャンクで再オープンすること"""
+        code_content = "x" * 5000
+        text = f"```\n{code_content}\n```"
+        chunks = _split_mrkdwn_text(text)
+
+        # 複数チャンクに分割されること
+        assert len(chunks) >= 2
+        # 各チャンクで```が対になっていること
+        for chunk in chunks:
+            count = chunk.count("```")
+            assert count % 2 == 0, "コードブロックの```が対になっていない"
+
+    def test_code_block_chunks_within_3000_chars(self) -> None:
+        """コードブロック分割時に閉じ/再オープンフェンス込みで各チャンクが3000文字以内であること"""
+        # 改行なしの長いコードブロック（5000文字超）
+        code_content = "x" * 5000
+        text = f"```\n{code_content}\n```"
+        chunks = _split_mrkdwn_text(text)
+
+        # 各チャンクが3000文字以内であること
+        for i, chunk in enumerate(chunks):
+            assert len(chunk) <= 3000, (
+                f"チャンク{i}が3000文字を超えている: {len(chunk)}文字"
+            )
+
+    def test_slack_link_at_chunk_start_not_split(self) -> None:
+        """チャンク先頭のSlackリンクが分割されないこと（link_start==0のケース）
+
+        2チャンク目の先頭がSlackリンクで始まり、そのリンク内で
+        split_posが来る場合に、link_start==0でも調整されること。
+        """
+        # 1チャンク目で改行分割される部分（2999文字+改行）
+        first_part = "あ" * 2999 + "\n"
+        # 2チャンク目の先頭がSlackリンク（2996文字）+ 末尾テキストで合計3000文字超
+        url = "https://example.com/" + "a" * 2970
+        link = f"<{url}|テスト>"  # 2996文字
+        text = first_part + link + "末尾テキスト"
+
+        chunks = _split_mrkdwn_text(text)
+
+        # リンクが途中で切れていないこと
+        for chunk in chunks:
+            open_count = chunk.count("<")
+            close_count = chunk.count(">")
+            assert open_count == close_count, f"リンク構文が壊れている: {chunk[:100]}..."
+
+    def test_oversized_slack_link_force_split_within_limit(self) -> None:
+        """3000文字を超えるSlackリンクが強制分割され、各チャンクが3000文字以内であること"""
+        # リンク全体が3000文字超（異常に長いURL）
+        url = "https://example.com/" + "a" * 3500
+        link = f"<{url}|テスト>"
+        text = link
+
+        chunks = _split_mrkdwn_text(text)
+
+        # 各チャンクが3000文字以内であること（Slack投稿エラー回避が最優先）
+        for i, chunk in enumerate(chunks):
+            assert len(chunk) <= 3000, (
+                f"チャンク{i}が3000文字を超えている: {len(chunk)}文字"
+            )
+
+    def test_will_split_in_code_recalculated_after_adjustment(self) -> None:
+        """split_pos調整後にwill_split_in_codeが再計算されること
+
+        エンティティ(&amp;)がコードブロック直前にあり、エンティティ保護で
+        split_posがコードブロック外に移動した場合、誤って```が付与されないこと。
+
+        構成: prefix(2993) + &amp;(5文字, 2993-2997) + ```code```(2998-)
+        effective_max=3000, pos 3000はコード内 → will_split_in_code=True
+        close_cost=4, split_pos=2996 → &amp;の途中 → 2993に調整
+        2993はコード外 → will_split_in_codeを再計算しないと誤って```が付与される
+        """
+        prefix = "x" * 2993
+        entity = "&amp;"  # 5文字（2993-2997）
+        code_content = "y" * 100
+        code = f"```{code_content}```"  # コードブロック（2998-）
+        text = prefix + entity + code
+
+        chunks = _split_mrkdwn_text(text)
+
+        # 最初のチャンクはprefix + entityまでのはずで、コードブロック外
+        # will_split_in_codeが再計算されていれば```は付与されない
+        first_chunk = chunks[0]
+        assert "```" not in first_chunk, (
+            f"コードブロック外のチャンクに```が付与されている: {first_chunk[-50:]}"
+        )
+
+    def test_newline_inside_code_block_not_used_for_split(self) -> None:
+        """コードブロック内の改行が分割ポイントとして使われないこと"""
+        prefix = "あ" * 2000 + "\n"
+        # コードブロック内に改行が多数あるケース（合計3000文字超）
+        code_lines = "\n".join(["line " + str(i) for i in range(200)])
+        code_block = f"```\n{code_lines}\n```"
+        text = prefix + code_block
+
+        chunks = _split_mrkdwn_text(text)
+
+        # 各チャンクでコードブロックが壊れていないこと
+        for chunk in chunks:
+            count = chunk.count("```")
+            assert count % 2 == 0, "コードブロック内の改行で分割された"
