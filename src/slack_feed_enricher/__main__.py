@@ -7,6 +7,7 @@ from claude_agent_sdk import query
 from slack_sdk.web.async_client import AsyncWebClient
 
 from slack_feed_enricher.config import load_config
+from slack_feed_enricher.hatebu import AiohttpHatebuClient
 from slack_feed_enricher.slack import SlackClient
 from slack_feed_enricher.worker import run
 
@@ -28,6 +29,9 @@ async def main() -> None:
     web_client = AsyncWebClient(token=config.slack_bot_token)
     slack_client = SlackClient(web_client)
 
+    # はてなブックマーク クライアントを初期化
+    hatebu_client = AiohttpHatebuClient()
+
     # ポーリングループを実行
     await run(
         slack_client=slack_client,
@@ -35,6 +39,7 @@ async def main() -> None:
         channel_id=config.rss_feed_channel_id,
         message_limit=config.message_limit,
         polling_interval=config.polling_interval,
+        hatebu_client=hatebu_client,
     )
 
 
