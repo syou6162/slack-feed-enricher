@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
@@ -13,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from slack_feed_enricher.claude.exceptions import (
     ClaudeAPIError,
     NoResultMessageError,
+    QueryTimeoutError,
     StructuredOutputError,
 )
 from slack_feed_enricher.hatebu.models import HatebuEntry
@@ -550,6 +552,7 @@ async def fetch_and_summarize(
     url: str,
     supplementary_urls: list[str] | None = None,
     hatebu_entry: HatebuEntry | None = None,
+    timeout_seconds: float | None = 300.0,
 ) -> EnrichResult:
     """URLの内容をWebFetchで取得し、構造化された要約結果を返す
 
@@ -558,12 +561,14 @@ async def fetch_and_summarize(
         url: 要約対象のURL
         supplementary_urls: 補足URL（引用先、ツール説明等）
         hatebu_entry: はてなブックマークエントリー情報（Noneなら省略）
+        timeout_seconds: query()全体のタイムアウト秒数（Noneなら無制限、0以下は不可）
 
     Returns:
         EnrichResult: Block Kit形式のブロックとフォールバックテキストを含む結果
 
     Raises:
-        ValueError: URLが空の場合
+        ValueError: URLが空の場合、またはtimeout_secondsが0以下の場合
+        QueryTimeoutError: query()がtimeout_seconds秒以内に完了しなかった場合
         NoResultMessageError: ResultMessageが取得できなかった場合
         ClaudeAPIError: Claude APIでエラーが発生した場合
         StructuredOutputError: 構造化出力が取得できなかった場合
@@ -573,6 +578,9 @@ async def fetch_and_summarize(
 
     if not url:
         raise ValueError("URLが空です")
+
+    if timeout_seconds is not None and timeout_seconds <= 0:
+        raise ValueError(f"timeout_secondsは正の値を指定してください: {timeout_seconds}")
 
     # プロンプト構築
     prompt = build_summary_prompt(url, supplementary_urls, hatebu_entry=hatebu_entry)
@@ -585,12 +593,18 @@ async def fetch_and_summarize(
         max_turns=10,
     )
 
-    # query実行
+    # query実行（タイムアウト付き）
     result_message: ResultMessage | None = None
-    async for message in query_func(prompt=prompt, options=options):
-        logger.info(f"Received message: {type(message).__name__} - {message}")
-        if isinstance(message, ResultMessage):
-            result_message = message
+    try:
+        async with asyncio.timeout(timeout_seconds):
+            async for message in query_func(prompt=prompt, options=options):
+                logger.info(f"Received message: {type(message).__name__} - {message}")
+                if isinstance(message, ResultMessage):
+                    result_message = message
+    except TimeoutError as e:
+        raise QueryTimeoutError(
+            f"query処理が{timeout_seconds}秒でタイムアウトしました (URL: {url})"
+        ) from e
 
     if result_message is None:
         raise NoResultMessageError("ResultMessageが取得できませんでした")
