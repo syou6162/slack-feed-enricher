@@ -154,8 +154,13 @@ async def enrich_and_reply_pending_messages(
                 except Exception:
                     logger.warning(f"はてブ取得失敗 (URL: {resolved.main_url}), hatebu_entry=Noneで続行")
 
+            query_timeout = max(60.0, timeout / 2) if timeout is not None else None
             enrich_result = await fetch_and_summarize(
-                query_func, resolved.main_url, resolved.supplementary_urls, hatebu_entry=hatebu_entry
+                query_func,
+                resolved.main_url,
+                resolved.supplementary_urls,
+                hatebu_entry=hatebu_entry,
+                timeout_seconds=query_timeout,
             )
             await send_enriched_messages(
                 slack_client=slack_client,

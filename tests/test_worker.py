@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from claude_agent_sdk import ResultMessage
 
+from slack_feed_enricher.claude.exceptions import QueryTimeoutError
 from slack_feed_enricher.claude.summarizer import EnrichResult, Meta, Summary, build_detail_blocks, build_meta_blocks, build_summary_blocks
 from slack_feed_enricher.hatebu.models import HatebuBookmark, HatebuEntry
 from slack_feed_enricher.slack import SlackMessage
@@ -393,3 +394,39 @@ async def test_enrich_and_reply_calls_resolve_urls(mock_resolve_urls: AsyncMock)
     mock_resolve_urls.assert_called_once()
     call_arg = mock_resolve_urls.call_args[0][0]
     assert call_arg.main_url == "https://news.google.com/rss/articles/CBMiWkFV_yqLPPG26S54Vr3FAAJZqPNByc?oc=5"
+
+
+@pytest.mark.asyncio
+async def test_enrich_and_reply_hanging_query_times_out_and_counted_as_error() -> None:
+    """QueryTimeoutErrorが発生した場合にerror_countに計上されること"""
+
+    async def hanging_query(*args: object, **kwargs: object) -> AsyncIterator[ResultMessage]:  # noqa: ARG001
+        await asyncio.sleep(float("inf"))
+        yield  # type: ignore[misc]  # 到達しない
+
+    mock_slack_client = AsyncMock()
+    mock_slack_client.fetch_unreplied_messages.return_value = [
+        SlackMessage(ts="1", text="<https://example.com>", reply_count=0),
+        SlackMessage(ts="2", text="<https://example2.com>", reply_count=0),
+    ]
+
+    # worker内のquery_timeoutはmax(60.0, ...)で下限があるため、
+    # fetch_and_summarizeをpatchしてQueryTimeoutErrorを直接発生させる
+    timeout_raised = False
+
+    async def patched_fetch(*args: object, **kwargs: object) -> object:  # noqa: ARG001
+        nonlocal timeout_raised
+        timeout_raised = True
+        raise QueryTimeoutError("テスト用タイムアウト")
+
+    with patch("slack_feed_enricher.worker.fetch_and_summarize", patched_fetch):
+        result = await enrich_and_reply_pending_messages(
+            slack_client=mock_slack_client,
+            query_func=hanging_query,
+            channel_id="C0123456789",
+            message_limit=100,
+        )
+
+    assert timeout_raised
+    assert result.error_count == 2
+    assert result.success_count == 0
