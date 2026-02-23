@@ -1,12 +1,13 @@
 """summarizer モジュールのテスト"""
 
+import asyncio
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock
 
 import pytest
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
 
-from slack_feed_enricher.claude.exceptions import ClaudeAPIError, StructuredOutputError
+from slack_feed_enricher.claude.exceptions import ClaudeAPIError, QueryTimeoutError, StructuredOutputError
 from slack_feed_enricher.claude.summarizer import (
     EnrichResult,
     Meta,
@@ -491,6 +492,81 @@ class TestFetchAndSummarize:
         )
         result = await fetch_and_summarize(mock_query, "https://example.com", hatebu_entry=entry)
         assert "はてなブックマークコメント" not in result.detail_text
+
+    @pytest.mark.asyncio
+    async def test_raises_query_timeout_error_on_timeout(self) -> None:
+        """ハングするquery_funcがタイムアウトしてQueryTimeoutErrorになること"""
+
+        async def hanging_query(**kwargs: object) -> AsyncIterator[object]:  # noqa: ARG001
+            await asyncio.sleep(float("inf"))
+            yield  # 到達しない
+
+        with pytest.raises(QueryTimeoutError, match="タイムアウト"):
+            await fetch_and_summarize(hanging_query, "https://example.com", timeout_seconds=0.1)
+
+    @pytest.mark.asyncio
+    async def test_raises_value_error_for_zero_timeout_seconds(self) -> None:
+        """timeout_seconds=0でValueErrorが発生すること"""
+
+        async def mock_query(**kwargs: object) -> AsyncIterator[object]:  # noqa: ARG001
+            yield None
+
+        with pytest.raises(ValueError, match="timeout_seconds"):
+            await fetch_and_summarize(mock_query, "https://example.com", timeout_seconds=0)
+
+    @pytest.mark.asyncio
+    async def test_raises_value_error_for_negative_timeout_seconds(self) -> None:
+        """timeout_seconds=-1でValueErrorが発生すること"""
+
+        async def mock_query(**kwargs: object) -> AsyncIterator[object]:  # noqa: ARG001
+            yield None
+
+        with pytest.raises(ValueError, match="timeout_seconds"):
+            await fetch_and_summarize(mock_query, "https://example.com", timeout_seconds=-1)
+
+    @pytest.mark.asyncio
+    async def test_no_timeout_when_none(self) -> None:
+        """timeout_seconds=Noneでタイムアウトしないこと（正常完了するmockで確認）"""
+        mock_result = AsyncMock(spec=ResultMessage)
+        mock_result.is_error = False
+        mock_result.structured_output = {
+            "meta": {
+                "title": "テスト",
+                "url": "https://example.com",
+                "author": None,
+                "category_large": None,
+                "category_medium": None,
+                "published_at": None,
+            },
+            "summary": {"points": ["ポイント"]},
+            "detail": "詳細",
+        }
+
+        async def mock_query(**kwargs: object) -> AsyncIterator[object]:  # noqa: ARG001
+            yield mock_result
+
+        result = await fetch_and_summarize(mock_query, "https://example.com", timeout_seconds=None)
+        assert isinstance(result, EnrichResult)
+
+    @pytest.mark.asyncio
+    async def test_generator_cleanup_on_timeout(self) -> None:
+        """タイムアウト時にasync generatorのfinallyが実行されること"""
+        cleanup_called = False
+
+        async def hanging_query_with_finally(**kwargs: object) -> AsyncIterator[object]:  # noqa: ARG001
+            nonlocal cleanup_called
+            try:
+                await asyncio.sleep(float("inf"))
+                yield  # 到達しない
+            finally:
+                cleanup_called = True
+
+        with pytest.raises(QueryTimeoutError):
+            await fetch_and_summarize(
+                hanging_query_with_finally, "https://example.com", timeout_seconds=0.1
+            )
+
+        assert cleanup_called, "タイムアウト時にgeneratorのfinallyが呼ばれること"
 
 
 class TestBuildSummaryPrompt:

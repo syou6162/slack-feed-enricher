@@ -25,3 +25,7 @@ class ClaudeAPIError(ClaudeSDKError):
 
 class StructuredOutputError(ClaudeSDKError):
     """構造化出力が取得できなかった場合のエラー"""
+
+
+class QueryTimeoutError(ClaudeSDKError):
+    """query()呼び出しがタイムアウトした場合のエラー"""
