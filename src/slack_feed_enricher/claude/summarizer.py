@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
+from claude_agent_sdk._errors import MessageParseError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from slack_feed_enricher.claude.exceptions import (
@@ -601,6 +602,9 @@ async def fetch_and_summarize(
                 logger.info(f"Received message: {type(message).__name__} - {message}")
                 if isinstance(message, ResultMessage):
                     result_message = message
+    except MessageParseError as e:
+        logger.error("MessageParseError occurred: %s, data=%s", e, e.data)
+        raise
     except TimeoutError as e:
         raise QueryTimeoutError(
             f"query処理が{timeout_seconds}秒でタイムアウトしました (URL: {url})"

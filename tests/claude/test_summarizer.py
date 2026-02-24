@@ -1,11 +1,13 @@
 """summarizer モジュールのテスト"""
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock
 
 import pytest
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
+from claude_agent_sdk._errors import MessageParseError
 
 from slack_feed_enricher.claude.exceptions import ClaudeAPIError, QueryTimeoutError, StructuredOutputError
 from slack_feed_enricher.claude.summarizer import (
@@ -567,6 +569,42 @@ class TestFetchAndSummarize:
             )
 
         assert cleanup_called, "タイムアウト時にgeneratorのfinallyが呼ばれること"
+
+    @pytest.mark.asyncio
+    async def test_logs_and_reraises_message_parse_error_with_data(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """MessageParseError発生時にe.dataをログに出力してre-raiseすること"""
+        error_data = {"type": "rate_limit_event", "retry_after": 30}
+
+        async def mock_query(**kwargs: object) -> AsyncIterator[object]:  # noqa: ARG001
+            raise MessageParseError("Unknown message type: rate_limit_event", error_data)
+            yield  # type: ignore[misc]
+
+        with caplog.at_level(logging.ERROR), pytest.raises(MessageParseError, match="Unknown message type: rate_limit_event"):
+            await fetch_and_summarize(mock_query, "https://example.com")
+
+        assert any(
+            "rate_limit_event" in record.message and "retry_after" in record.message
+            for record in caplog.records
+        ), f"rate_limit_event の data がログに出力されていない: {[r.message for r in caplog.records]}"
+
+    @pytest.mark.asyncio
+    async def test_logs_and_reraises_message_parse_error_with_none_data(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """MessageParseErrorのdataがNoneの場合でもログ出力してre-raiseすること"""
+        async def mock_query(**kwargs: object) -> AsyncIterator[object]:  # noqa: ARG001
+            raise MessageParseError("Unknown message type: something", None)
+            yield  # type: ignore[misc]
+
+        with caplog.at_level(logging.ERROR), pytest.raises(MessageParseError, match="Unknown message type: something"):
+            await fetch_and_summarize(mock_query, "https://example.com")
+
+        assert any(
+            "MessageParseError" in record.message
+            for record in caplog.records
+        ), f"MessageParseError がログに出力されていない: {[r.message for r in caplog.records]}"
 
 
 class TestBuildSummaryPrompt:

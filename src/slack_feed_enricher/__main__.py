@@ -11,7 +11,11 @@ from slack_feed_enricher.hatebu import AiohttpHatebuClient
 from slack_feed_enricher.slack import SlackClient
 from slack_feed_enricher.worker import run
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 logger = logging.getLogger(__name__)
 
 
