@@ -12,7 +12,7 @@ from typing import Any
 from slack_feed_enricher.claude import fetch_and_summarize
 from slack_feed_enricher.claude.summarizer import EnrichResult
 from slack_feed_enricher.hatebu.client import HatebuClient
-from slack_feed_enricher.slack import SlackClient, extract_urls, resolve_urls
+from slack_feed_enricher.slack import PERMANENT_FAILURE_STATUSES, SlackClient, check_url_status, extract_urls, resolve_urls
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +144,18 @@ async def enrich_and_reply_pending_messages(
             resolved = await resolve_urls(extracted)
             if resolved.main_url is None:
                 skipped_count += 1
+                continue
+
+            # HTTPステータスチェック（恒久失敗はLLMに投げない）
+            status = await check_url_status(resolved.main_url)
+            if status is not None and status in PERMANENT_FAILURE_STATUSES:
+                logger.warning("URL returned HTTP %d, skipping LLM: %s", status, resolved.main_url)
+                await slack_client.post_thread_reply(
+                    channel_id=channel_id,
+                    thread_ts=message.ts,
+                    text=f":warning: この記事は取得できませんでした (HTTP {status})\nURL: {resolved.main_url}",
+                )
+                error_count += 1
                 continue
 
             # はてブエントリー取得（フェイルオープン）
