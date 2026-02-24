@@ -10,11 +10,14 @@ from slack_feed_enricher.slack.blocks import (
 from slack_feed_enricher.slack.client import SlackClient, SlackMessage
 from slack_feed_enricher.slack.exceptions import SlackAPIError, SlackError
 from slack_feed_enricher.slack.markdown_converter import convert_markdown_to_mrkdwn
+from slack_feed_enricher.slack.url_checker import PERMANENT_FAILURE_STATUSES, check_url_status
 from slack_feed_enricher.slack.url_extractor import ExtractedUrls, extract_urls
 from slack_feed_enricher.slack.url_resolver import resolve_url, resolve_urls
 
 __all__ = [
     "ExtractedUrls",
+    "PERMANENT_FAILURE_STATUSES",
+    "check_url_status",
     "SlackAPIError",
     "SlackBlock",
     "SlackClient",

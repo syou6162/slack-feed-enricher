@@ -1,7 +1,7 @@
 """workerモジュールのテスト"""
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Generator
 from contextlib import suppress
 from unittest.mock import AsyncMock, patch
 
@@ -15,6 +15,14 @@ from slack_feed_enricher.slack import SlackMessage
 from slack_feed_enricher.slack.exceptions import SlackAPIError
 from slack_feed_enricher.slack.url_extractor import ExtractedUrls
 from slack_feed_enricher.worker import QueryFunc, enrich_and_reply_pending_messages, run, send_enriched_messages
+
+
+# check_url_statusをデフォルトで200を返すようにpatchする（実ネットワークアクセスを防止）
+@pytest.fixture(autouse=True)
+def _mock_check_url_status() -> Generator[AsyncMock]:
+    with patch("slack_feed_enricher.worker.check_url_status", new_callable=AsyncMock) as mock:
+        mock.return_value = 200
+        yield mock
 
 # テスト用の3ブロック構造化出力を生成するヘルパー
 SAMPLE_STRUCTURED_OUTPUT = {
@@ -430,3 +438,123 @@ async def test_enrich_and_reply_hanging_query_times_out_and_counted_as_error() -
     assert timeout_raised
     assert result.error_count == 2
     assert result.success_count == 0
+
+
+@pytest.mark.asyncio
+async def test_enrich_and_reply_skips_llm_on_403(_mock_check_url_status: AsyncMock) -> None:
+    """403の場合、fetch_and_summarizeが呼ばれずエラー返信が投稿されること"""
+    _mock_check_url_status.return_value = 403
+
+    mock_slack_client = AsyncMock()
+    mock_slack_client.fetch_unreplied_messages.return_value = [
+        SlackMessage(ts="1", text="<https://example.com/article>", reply_count=0),
+    ]
+    mock_slack_client.post_thread_reply.return_value = "reply_ts"
+
+    with patch("slack_feed_enricher.worker.fetch_and_summarize") as mock_fetch:
+        result = await enrich_and_reply_pending_messages(
+            slack_client=mock_slack_client,
+            query_func=create_mock_query_func(),
+            channel_id="C0123456789",
+            message_limit=100,
+        )
+
+    mock_fetch.assert_not_called()
+    mock_slack_client.post_thread_reply.assert_called_once()
+    call_text = mock_slack_client.post_thread_reply.call_args.kwargs["text"]
+    assert "403" in call_text
+    assert result.error_count == 1
+    assert result.success_count == 0
+
+
+@pytest.mark.asyncio
+async def test_enrich_and_reply_skips_llm_on_404(_mock_check_url_status: AsyncMock) -> None:
+    """404の場合、fetch_and_summarizeが呼ばれずエラー返信が投稿されること"""
+    _mock_check_url_status.return_value = 404
+
+    mock_slack_client = AsyncMock()
+    mock_slack_client.fetch_unreplied_messages.return_value = [
+        SlackMessage(ts="1", text="<https://example.com/article>", reply_count=0),
+    ]
+    mock_slack_client.post_thread_reply.return_value = "reply_ts"
+
+    with patch("slack_feed_enricher.worker.fetch_and_summarize") as mock_fetch:
+        result = await enrich_and_reply_pending_messages(
+            slack_client=mock_slack_client,
+            query_func=create_mock_query_func(),
+            channel_id="C0123456789",
+            message_limit=100,
+        )
+
+    mock_fetch.assert_not_called()
+    mock_slack_client.post_thread_reply.assert_called_once()
+    call_text = mock_slack_client.post_thread_reply.call_args.kwargs["text"]
+    assert "404" in call_text
+    assert result.error_count == 1
+    assert result.success_count == 0
+
+
+@pytest.mark.asyncio
+async def test_enrich_and_reply_proceeds_on_2xx(_mock_check_url_status: AsyncMock) -> None:
+    """200の場合、通常通りfetch_and_summarizeが呼ばれること"""
+    _mock_check_url_status.return_value = 200
+
+    mock_slack_client = AsyncMock()
+    mock_slack_client.fetch_unreplied_messages.return_value = [
+        SlackMessage(ts="1", text="<https://example.com/article>", reply_count=0),
+    ]
+    mock_slack_client.post_thread_reply.return_value = "reply_ts"
+
+    result = await enrich_and_reply_pending_messages(
+        slack_client=mock_slack_client,
+        query_func=create_mock_query_func(),
+        channel_id="C0123456789",
+        message_limit=100,
+    )
+
+    assert result.success_count == 1
+    assert result.error_count == 0
+
+
+@pytest.mark.asyncio
+async def test_enrich_and_reply_proceeds_on_429(_mock_check_url_status: AsyncMock) -> None:
+    """429(一時的エラー)の場合、スキップせずLLMに渡すこと"""
+    _mock_check_url_status.return_value = 429
+
+    mock_slack_client = AsyncMock()
+    mock_slack_client.fetch_unreplied_messages.return_value = [
+        SlackMessage(ts="1", text="<https://example.com/article>", reply_count=0),
+    ]
+    mock_slack_client.post_thread_reply.return_value = "reply_ts"
+
+    result = await enrich_and_reply_pending_messages(
+        slack_client=mock_slack_client,
+        query_func=create_mock_query_func(),
+        channel_id="C0123456789",
+        message_limit=100,
+    )
+
+    assert result.success_count == 1
+    assert result.error_count == 0
+
+
+@pytest.mark.asyncio
+async def test_enrich_and_reply_proceeds_on_status_none(_mock_check_url_status: AsyncMock) -> None:
+    """check_url_statusがNone（タイムアウト等）の場合、楽観的にLLMに渡すこと"""
+    _mock_check_url_status.return_value = None
+
+    mock_slack_client = AsyncMock()
+    mock_slack_client.fetch_unreplied_messages.return_value = [
+        SlackMessage(ts="1", text="<https://example.com/article>", reply_count=0),
+    ]
+    mock_slack_client.post_thread_reply.return_value = "reply_ts"
+
+    result = await enrich_and_reply_pending_messages(
+        slack_client=mock_slack_client,
+        query_func=create_mock_query_func(),
+        channel_id="C0123456789",
+        message_limit=100,
+    )
+
+    assert result.success_count == 1
+    assert result.error_count == 0
