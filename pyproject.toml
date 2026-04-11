@@ -18,7 +18,7 @@ dependencies = [
     "slack-sdk==3.40.1",
     "aiohttp==3.13.5",
     "claude-agent-sdk==0.1.40",
-    "markdown-to-mrkdwn==0.3.1",
+    "markdown-to-mrkdwn==0.3.2",
     "googlenewsdecoder==0.1.7",
 ]
 
