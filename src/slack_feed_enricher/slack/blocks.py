@@ -47,4 +47,14 @@ class SlackRichTextBlock(BaseModel, frozen=True):
     elements: list[SlackRichTextList]
 
 
-SlackBlock = SlackSectionBlock | SlackDividerBlock | SlackHeaderBlock | SlackRichTextBlock
+class SlackContextElement(BaseModel, frozen=True):
+    type: Literal["plain_text", "mrkdwn"]
+    text: str
+
+
+class SlackContextBlock(BaseModel, frozen=True):
+    type: Literal["context"] = "context"
+    elements: list[SlackContextElement]
+
+
+SlackBlock = SlackSectionBlock | SlackDividerBlock | SlackHeaderBlock | SlackRichTextBlock | SlackContextBlock

@@ -2,6 +2,8 @@
 
 from slack_feed_enricher.slack.blocks import (
     SlackBlock,
+    SlackContextBlock,
+    SlackContextElement,
     SlackDividerBlock,
     SlackRichTextBlock,
     SlackSectionBlock,
@@ -21,6 +23,8 @@ __all__ = [
     "SlackAPIError",
     "SlackBlock",
     "SlackClient",
+    "SlackContextBlock",
+    "SlackContextElement",
     "SlackDividerBlock",
     "SlackError",
     "SlackRichTextBlock",

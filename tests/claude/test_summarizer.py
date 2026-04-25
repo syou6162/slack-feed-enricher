@@ -17,15 +17,18 @@ from slack_feed_enricher.claude.summarizer import (
     Summary,
     _split_mrkdwn_text,
     build_detail_blocks,
+    build_fallback_text,
     build_meta_blocks,
     build_summary_blocks,
     build_summary_prompt,
+    build_unified_blocks,
     fetch_and_summarize,
     format_meta_block,
     format_summary_block,
 )
 from slack_feed_enricher.hatebu.models import HatebuBookmark, HatebuEntry
 from slack_feed_enricher.slack.blocks import (
+    SlackContextBlock,
     SlackHeaderBlock,
     SlackRichTextBlock,
     SlackRichTextList,
@@ -127,39 +130,14 @@ class TestFetchAndSummarize:
 
         result = await fetch_and_summarize(mock_query, "https://example.com")
 
+        meta = Meta(
+            title="テスト記事", url="https://example.com", author="test_author",
+            category_large="テスト", category_medium="サブカテゴリ", published_at="2025-01-15T10:30:00Z",
+        )
+        summary = Summary(points=["ポイント1", "ポイント2"])
         expected = EnrichResult(
-            meta_text=(
-                "*テスト記事*\nURL: https://example.com\n著者: test_author\n"
-                "カテゴリー: テスト / サブカテゴリ\n投稿日時: 2025-01-15T10:30:00Z"
-            ),
-            meta_blocks=[
-                SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="テスト記事")),
-                SlackSectionBlock(fields=[
-                    SlackTextObject(type="mrkdwn", text="*URL*"),
-                    SlackTextObject(type="mrkdwn", text="<https://example.com>"),
-                    SlackTextObject(type="mrkdwn", text="*Author*"),
-                    SlackTextObject(type="plain_text", text="test_author"),
-                    SlackTextObject(type="mrkdwn", text="*Category*"),
-                    SlackTextObject(type="plain_text", text="テスト / サブカテゴリ"),
-                    SlackTextObject(type="mrkdwn", text="*Published*"),
-                    SlackTextObject(type="plain_text", text="2025-01-15T10:30:00Z"),
-                ]),
-            ],
-            summary_text="- ポイント1\n- ポイント2",
-            summary_blocks=[
-                SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Summary")),
-                SlackRichTextBlock(elements=[
-                    SlackRichTextList(style="bullet", elements=[
-                        SlackRichTextSection(elements=[SlackTextElement(text="ポイント1")]),
-                        SlackRichTextSection(elements=[SlackTextElement(text="ポイント2")]),
-                    ]),
-                ]),
-            ],
-            detail_text="*詳細*\n記事の詳細内容",
-            detail_blocks=[
-                SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Details")),
-                SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text="*詳細*\n記事の詳細内容")),
-            ],
+            blocks=build_unified_blocks(meta, summary, "# 詳細\n記事の詳細内容"),
+            fallback_text=build_fallback_text(meta, summary),
         )
         assert result == expected
 
@@ -194,38 +172,14 @@ class TestFetchAndSummarize:
             supplementary_urls=["https://tool.example.com", "https://ref.example.com"],
         )
 
+        meta = Meta(
+            title="テスト記事", url="https://example.com", author="test_author",
+            category_large="テスト", category_medium="サブカテゴリ", published_at="2025-01-15T10:30:00Z",
+        )
+        summary = Summary(points=["ポイント1"])
         expected = EnrichResult(
-            meta_text=(
-                "*テスト記事*\nURL: https://example.com\n著者: test_author\n"
-                "カテゴリー: テスト / サブカテゴリ\n投稿日時: 2025-01-15T10:30:00Z"
-            ),
-            meta_blocks=[
-                SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="テスト記事")),
-                SlackSectionBlock(fields=[
-                    SlackTextObject(type="mrkdwn", text="*URL*"),
-                    SlackTextObject(type="mrkdwn", text="<https://example.com>"),
-                    SlackTextObject(type="mrkdwn", text="*Author*"),
-                    SlackTextObject(type="plain_text", text="test_author"),
-                    SlackTextObject(type="mrkdwn", text="*Category*"),
-                    SlackTextObject(type="plain_text", text="テスト / サブカテゴリ"),
-                    SlackTextObject(type="mrkdwn", text="*Published*"),
-                    SlackTextObject(type="plain_text", text="2025-01-15T10:30:00Z"),
-                ]),
-            ],
-            summary_text="- ポイント1",
-            summary_blocks=[
-                SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Summary")),
-                SlackRichTextBlock(elements=[
-                    SlackRichTextList(style="bullet", elements=[
-                        SlackRichTextSection(elements=[SlackTextElement(text="ポイント1")]),
-                    ]),
-                ]),
-            ],
-            detail_text="*詳細*\n記事の詳細内容",
-            detail_blocks=[
-                SlackHeaderBlock(text=SlackTextObject(type="plain_text", text="Details")),
-                SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text="*詳細*\n記事の詳細内容")),
-            ],
+            blocks=build_unified_blocks(meta, summary, "# 詳細\n記事の詳細内容"),
+            fallback_text=build_fallback_text(meta, summary),
         )
         assert result == expected
         # プロンプトが補足URL付きで構築されていること
@@ -350,24 +304,28 @@ class TestFetchAndSummarize:
         )
         result = await fetch_and_summarize(mock_query, "https://example.com", hatebu_entry=entry)
 
-        # detail_textにはてブコメントが含まれること
-        assert "はてなブックマークコメント" in result.detail_text
-        assert "user1" in result.detail_text
-        assert "良い記事" in result.detail_text
-        assert "user3" in result.detail_text
-        assert "参考になった" in result.detail_text
+        # blocksの詳細セクションにはてブコメントが含まれること
+        detail_texts = []
+        for block in result.blocks:
+            if isinstance(block, SlackSectionBlock) and block.text:
+                detail_texts.append(block.text.text)
+        all_detail_text = "\n".join(detail_texts)
+        assert "はてなブックマークコメント" in all_detail_text
+        assert "user1" in all_detail_text
+        assert "良い記事" in all_detail_text
+        assert "user3" in all_detail_text
+        assert "参考になった" in all_detail_text
         # 空コメントのuser2は含まれない
-        assert "user2" not in result.detail_text
+        assert "user2" not in all_detail_text
 
-        # meta_textにはてブ情報が含まれること
-        assert "はてなブックマーク: 3 users / 2 comments" in result.meta_text
+        # fallback_textにはてブ情報が含まれること
+        assert "はてブ: 3 users" in result.fallback_text
 
-        # meta_blocksにはてブフィールドが含まれること
-        fields_block = result.meta_blocks[1]
-        assert isinstance(fields_block, SlackSectionBlock)
-        assert fields_block.fields is not None
-        hatebu_field_values = [f.text for f in fields_block.fields if "users" in f.text]
-        assert len(hatebu_field_values) == 1
+        # blocksのContextブロックにはてブ情報が含まれること
+        context_blocks = [b for b in result.blocks if isinstance(b, SlackContextBlock)]
+        assert len(context_blocks) >= 1
+        context_text = context_blocks[0].elements[0].text
+        assert "users" in context_text
 
     @pytest.mark.asyncio
     async def test_hatebu_entry_none_no_changes(self) -> None:
@@ -391,8 +349,14 @@ class TestFetchAndSummarize:
             yield mock_result
 
         result = await fetch_and_summarize(mock_query, "https://example.com", hatebu_entry=None)
-        assert "はてなブックマーク" not in result.detail_text
-        assert "はてなブックマーク" not in result.meta_text
+        # blocksの詳細セクションにはてブ情報がないこと
+        detail_texts = []
+        for block in result.blocks:
+            if isinstance(block, SlackSectionBlock) and block.text:
+                detail_texts.append(block.text.text)
+        all_detail_text = "\n".join(detail_texts)
+        assert "はてなブックマーク" not in all_detail_text
+        assert "はてブ" not in result.fallback_text
 
     @pytest.mark.asyncio
     async def test_hatebu_detail_blocks_contain_comments(self) -> None:
@@ -421,9 +385,9 @@ class TestFetchAndSummarize:
         )
         result = await fetch_and_summarize(mock_query, "https://example.com", hatebu_entry=entry)
 
-        # detail_blocksのテキストにコメントが含まれること
+        # blocksの詳細セクションにコメントが含まれること
         detail_texts = []
-        for block in result.detail_blocks:
+        for block in result.blocks:
             if isinstance(block, SlackSectionBlock) and block.text:
                 detail_texts.append(block.text.text)
         all_detail_text = "\n".join(detail_texts)
@@ -493,7 +457,12 @@ class TestFetchAndSummarize:
             ],
         )
         result = await fetch_and_summarize(mock_query, "https://example.com", hatebu_entry=entry)
-        assert "はてなブックマークコメント" not in result.detail_text
+        detail_texts = []
+        for block in result.blocks:
+            if isinstance(block, SlackSectionBlock) and block.text:
+                detail_texts.append(block.text.text)
+        all_detail_text = "\n".join(detail_texts)
+        assert "はてなブックマークコメント" not in all_detail_text
 
     @pytest.mark.asyncio
     async def test_raises_query_timeout_error_on_timeout(self) -> None:
