@@ -141,8 +141,7 @@ def build_summary_prompt(
 補足URL:
 {urls_list}
 
-メインURLが主たる情報源です。補足URLは記事内で言及されているツールや\
-引用元の詳細情報なので、要約に適宜取り込んでください。"""
+メインURLが主たる情報源です。補足URLは記事内で言及されているツールや引用元の詳細情報なので、要約に適宜取り込んでください。"""
 
     if hatebu_entry is not None and hatebu_entry.comment_count > 0:
         filepath = _write_hatebu_comments_to_file(hatebu_entry)
