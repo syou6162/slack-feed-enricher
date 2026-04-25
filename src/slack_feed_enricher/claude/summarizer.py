@@ -21,8 +21,6 @@ from slack_feed_enricher.claude.exceptions import (
 from slack_feed_enricher.hatebu.models import HatebuEntry
 from slack_feed_enricher.slack.blocks import (
     SlackBlock,
-    SlackContextBlock,
-    SlackContextElement,
     SlackDividerBlock,
     SlackHeaderBlock,
     SlackRichTextBlock,
@@ -488,27 +486,30 @@ def build_detail_blocks(detail: str) -> list[SlackBlock]:
     return sections
 
 
-def _build_context_elements(meta: Meta, hatebu_entry: HatebuEntry | None = None) -> list[SlackContextElement]:
-    """MetaモデルからContextブロック用のelementsを生成する
-
-    各項目をmarkdownの箇条書き形式で表示する。
-    """
-    lines: list[str] = []
+def _build_context_blocks(meta: Meta, hatebu_entry: HatebuEntry | None = None) -> list[SlackBlock]:
+    """Metaモデルからコンテキスト情報をrich_textの箇条書きブロックとして生成する"""
+    items: list[str] = []
     if meta.author and meta.author.name:
-        lines.append(f"- 著者: {meta.author.name}")
+        items.append(f"著者: {meta.author.name}")
         if meta.author.expertise_areas:
-            lines.append(f"- 専門: {', '.join(meta.author.expertise_areas)}")
+            items.append(f"専門: {', '.join(meta.author.expertise_areas)}")
     if meta.category_large and meta.category_medium:
-        lines.append(f"- カテゴリ: {meta.category_large} / {meta.category_medium}")
+        items.append(f"カテゴリ: {meta.category_large} / {meta.category_medium}")
     elif meta.category_large:
-        lines.append(f"- カテゴリ: {meta.category_large}")
+        items.append(f"カテゴリ: {meta.category_large}")
     elif meta.category_medium:
-        lines.append(f"- カテゴリ: {meta.category_medium}")
+        items.append(f"カテゴリ: {meta.category_medium}")
     if meta.published_at:
-        lines.append(f"- 公開日: {meta.published_at}")
+        items.append(f"公開日: {meta.published_at}")
     if hatebu_entry is not None:
-        lines.append(f"- \U0001f4da {hatebu_entry.count} users / \U0001f4ac {hatebu_entry.comment_count} comments")
-    return [SlackContextElement(type="mrkdwn", text="\n".join(lines))] if lines else []
+        items.append(f"\U0001f4da {hatebu_entry.count} users / \U0001f4ac {hatebu_entry.comment_count} comments")
+    if not items:
+        return []
+    list_elements = [
+        SlackRichTextSection(elements=[SlackTextElement(text=item)])
+        for item in items
+    ]
+    return [SlackRichTextBlock(elements=[SlackRichTextList(style="bullet", elements=list_elements)])]
 
 
 def build_unified_blocks(
@@ -521,7 +522,7 @@ def build_unified_blocks(
 
     レイアウト:
     1. Header: 記事タイトル
-    2. Context: 著者 / カテゴリ / 公開日 / はてブ数
+    2. RichText (bullet list): 著者 / 専門 / カテゴリ / 公開日 / はてブ数
     3. Section: 元記事URL
     4. Divider
     5. RichText (bullet list): 要約
@@ -543,10 +544,8 @@ def build_unified_blocks(
     truncated_title = meta.title[:150] if len(meta.title) > 150 else meta.title
     blocks.append(SlackHeaderBlock(text=SlackTextObject(type="plain_text", text=truncated_title)))
 
-    # 2. Context: 著者 / カテゴリ / 公開日 / はてブ数
-    context_elements = _build_context_elements(meta, hatebu_entry)
-    if context_elements:
-        blocks.append(SlackContextBlock(elements=context_elements))
+    # 2. コンテキスト情報（箇条書き）
+    blocks.extend(_build_context_blocks(meta, hatebu_entry))
 
     # 3. Section: 元記事URL
     blocks.append(SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=f"<{meta.url}>")))

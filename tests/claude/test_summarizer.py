@@ -29,7 +29,6 @@ from slack_feed_enricher.claude.summarizer import (
 )
 from slack_feed_enricher.hatebu.models import HatebuBookmark, HatebuEntry
 from slack_feed_enricher.slack.blocks import (
-    SlackContextBlock,
     SlackHeaderBlock,
     SlackRichTextBlock,
     SlackRichTextList,
@@ -457,11 +456,14 @@ class TestFetchAndSummarize:
         # fallback_textにはてブ情報が含まれること
         assert "はてブ: 3 users" in result.fallback_text
 
-        # blocksのContextブロックにはてブ情報が含まれること
-        context_blocks = [b for b in result.blocks if isinstance(b, SlackContextBlock)]
-        assert len(context_blocks) >= 1
-        context_text = context_blocks[0].elements[0].text
-        assert "users" in context_text
+        # blocksのコンテキスト箇条書きブロックにはてブ情報が含まれること
+        rich_text_blocks = [b for b in result.blocks if isinstance(b, SlackRichTextBlock)]
+        assert len(rich_text_blocks) >= 1
+        context_block = rich_text_blocks[0]
+        context_list = context_block.elements[0]
+        assert isinstance(context_list, SlackRichTextList)
+        item_texts = [sec.elements[0].text for sec in context_list.elements]
+        assert any("users" in t for t in item_texts)
 
     @pytest.mark.asyncio
     async def test_hatebu_entry_none_no_changes(self) -> None:
