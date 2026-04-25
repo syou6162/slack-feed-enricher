@@ -726,22 +726,11 @@ class TestBuildSummaryPrompt:
         assert "著者情報の収集:" in prompt
         assert "メインURL（記事本体）: https://example.com/article" in prompt
 
-    def test_prompt_contains_platform_specific_profile_patterns(self) -> None:
-        """プロンプトにプラットフォーム別プロフィールURL構築パターンが含まれること"""
+    def test_prompt_uses_article_page_info_for_author(self) -> None:
+        """著者情報収集が元記事ページの情報のみを使う指示になっていること"""
         prompt = build_summary_prompt("https://example.com/article")
-        assert "Qiita: https://qiita.com/{ユーザーID}" in prompt
-        assert "Zenn: https://zenn.dev/{ユーザーID}" in prompt
-        assert "はてなブログ: ブログURL + /about" in prompt
-        assert "note: https://note.com/{ユーザーID}" in prompt
-        assert "Medium: https://medium.com/@{ユーザーID}" in prompt
-        assert "GitHub: https://github.com/{ユーザーID}" in prompt
-
-    def test_prompt_contains_profile_check_instructions(self) -> None:
-        """プロンプトにプロフィールページで確認すべき情報が含まれること"""
-        prompt = build_summary_prompt("https://example.com/article")
-        assert "自己紹介文（所属企業・役職・専門分野）" in prompt
-        assert "投稿記事のタイトル一覧" in prompt
-        assert "evidence_urlsには実際にWebFetchで取得したプロフィールページのURLを記録する" in prompt
+        assert "元記事ページ上に表示されている著者名・プロフィール情報から専門領域を推定する" in prompt
+        assert "evidence_urlsには記事ページ上にリンクされている著者プロフィールURLを記録する" in prompt
 
     def test_main_url_with_supplementary_urls(self) -> None:
         """メインURL + 補足URLs → 補足URLセクション付きのプロンプトが生成される"""

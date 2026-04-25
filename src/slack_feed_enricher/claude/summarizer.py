@@ -115,24 +115,9 @@ def build_summary_prompt(
 メインURL（記事本体）: {url}
 
 著者情報の収集:
-- 元記事ページから著者名・プロフィールリンクを探す
-- 著者名やユーザーIDが判明したら、必ずプロフィールページをWebFetchで取得し、
-  自己紹介文・投稿履歴・所属情報から専門領域を推定する
-- プラットフォーム別のプロフィールURL構築パターン:
-  - Qiita: https://qiita.com/{{ユーザーID}} → 自己紹介・投稿一覧から専門領域を確認
-  - Zenn: https://zenn.dev/{{ユーザーID}} → プロフィール・投稿傾向を確認
-  - はてなブログ: ブログURL + /about → Aboutページから著者情報を確認
-  - note: https://note.com/{{ユーザーID}} → プロフィールページを確認
-  - Medium: https://medium.com/@{{ユーザーID}} → プロフィールを確認
-  - GitHub: https://github.com/{{ユーザーID}} → READMEやbioから専門領域を確認
-  - Speaker Deck / SlideShare: 発表資料から専門領域を推定
-  - 個人サイト / 技術ブログ: /about や /profile ページを探す
-- プロフィールページで確認すべき情報:
-  - 自己紹介文（所属企業・役職・専門分野）
-  - 投稿記事のタイトル一覧（頻出トピックから専門領域を推定）
-  - SNSリンク（Twitter/X等のbioも参考になる）
-- evidence_urlsには実際にWebFetchで取得したプロフィールページのURLを記録する
-- 著者情報が見つからない場合はmeta.authorをnullとする"""
+- 元記事ページ上に表示されている著者名・プロフィール情報から専門領域を推定する
+- evidence_urlsには記事ページ上にリンクされている著者プロフィールURLを記録する
+- 著者情報が見当たらない場合はmeta.authorをnullとする"""
 
     if supplementary_urls:
         urls_list = "\n".join(f"- {sup_url}" for sup_url in supplementary_urls)
