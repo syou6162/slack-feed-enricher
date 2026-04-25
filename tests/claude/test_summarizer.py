@@ -139,7 +139,7 @@ class TestAuthorProfileDisplay:
     """AuthorProfile表示関連のテスト"""
 
     def test_build_meta_blocks_with_expertise_areas(self) -> None:
-        """expertise_areasがある場合、Author欄に括弧付きで表示されること"""
+        """expertise_areasがある場合、AuthorとExpertiseが別フィールドで表示されること"""
         meta = Meta(
             title="テスト",
             url="https://example.com",
@@ -148,7 +148,9 @@ class TestAuthorProfileDisplay:
         )
         blocks = build_meta_blocks(meta)
         fields_block = blocks[1]
-        assert SlackTextObject(type="plain_text", text="taro (インフラ, AWS)") in fields_block.fields
+        assert SlackTextObject(type="plain_text", text="taro") in fields_block.fields
+        assert SlackTextObject(type="mrkdwn", text="*Expertise*") in fields_block.fields
+        assert SlackTextObject(type="plain_text", text="インフラ, AWS") in fields_block.fields
 
     def test_build_meta_blocks_author_name_none_skips_author(self) -> None:
         """AuthorProfile.name=Noneの場合、Author欄が表示されないこと"""

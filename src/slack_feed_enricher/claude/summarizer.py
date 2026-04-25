@@ -187,13 +187,15 @@ def build_meta_blocks(meta: Meta, hatebu_entry: HatebuEntry | None = None) -> li
         SlackTextObject(type="mrkdwn", text=f"<{meta.url}>"),
     ]
     if meta.author and meta.author.name:
-        author_text = meta.author.name
-        if meta.author.expertise_areas:
-            author_text += f" ({', '.join(meta.author.expertise_areas)})"
         fields.extend([
             SlackTextObject(type="mrkdwn", text="*Author*"),
-            SlackTextObject(type="plain_text", text=author_text),
+            SlackTextObject(type="plain_text", text=meta.author.name),
         ])
+        if meta.author.expertise_areas:
+            fields.extend([
+                SlackTextObject(type="mrkdwn", text="*Expertise*"),
+                SlackTextObject(type="plain_text", text=", ".join(meta.author.expertise_areas)),
+            ])
     if meta.category_large and meta.category_medium:
         fields.extend([
             SlackTextObject(type="mrkdwn", text="*Category*"),
@@ -487,24 +489,26 @@ def build_detail_blocks(detail: str) -> list[SlackBlock]:
 
 
 def _build_context_elements(meta: Meta, hatebu_entry: HatebuEntry | None = None) -> list[SlackContextElement]:
-    """MetaモデルからContextブロック用のelementsを生成する"""
-    parts: list[str] = []
+    """MetaモデルからContextブロック用のelementsを生成する
+
+    各項目を「• ラベル: 値」形式の箇条書きで表示する。
+    """
+    lines: list[str] = []
     if meta.author and meta.author.name:
-        author_text = meta.author.name
+        lines.append(f"• 著者: {meta.author.name}")
         if meta.author.expertise_areas:
-            author_text += f" ({', '.join(meta.author.expertise_areas)})"
-        parts.append(f"著者: {author_text}")
+            lines.append(f"• 専門: {', '.join(meta.author.expertise_areas)}")
     if meta.category_large and meta.category_medium:
-        parts.append(f"{meta.category_large} / {meta.category_medium}")
+        lines.append(f"• カテゴリ: {meta.category_large} / {meta.category_medium}")
     elif meta.category_large:
-        parts.append(meta.category_large)
+        lines.append(f"• カテゴリ: {meta.category_large}")
     elif meta.category_medium:
-        parts.append(meta.category_medium)
+        lines.append(f"• カテゴリ: {meta.category_medium}")
     if meta.published_at:
-        parts.append(meta.published_at)
+        lines.append(f"• 公開日: {meta.published_at}")
     if hatebu_entry is not None:
-        parts.append(f"\U0001f4da {hatebu_entry.count} users / \U0001f4ac {hatebu_entry.comment_count} comments")
-    return [SlackContextElement(type="mrkdwn", text=" | ".join(parts))] if parts else []
+        lines.append(f"• \U0001f4da {hatebu_entry.count} users / \U0001f4ac {hatebu_entry.comment_count} comments")
+    return [SlackContextElement(type="mrkdwn", text="\n".join(lines))] if lines else []
 
 
 def build_unified_blocks(
