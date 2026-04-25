@@ -185,15 +185,13 @@ def build_meta_blocks(meta: Meta, hatebu_entry: HatebuEntry | None = None) -> li
         SlackTextObject(type="mrkdwn", text=f"<{meta.url}>"),
     ]
     if meta.author and meta.author.name:
+        author_text = meta.author.name
+        if meta.author.expertise_areas:
+            author_text += f" ({', '.join(meta.author.expertise_areas)})"
         fields.extend([
             SlackTextObject(type="mrkdwn", text="*Author*"),
-            SlackTextObject(type="plain_text", text=meta.author.name),
+            SlackTextObject(type="plain_text", text=author_text),
         ])
-        if meta.author.expertise_areas:
-            fields.extend([
-                SlackTextObject(type="mrkdwn", text="*Expertise*"),
-                SlackTextObject(type="plain_text", text=", ".join(meta.author.expertise_areas)),
-            ])
     if meta.category_large and meta.category_medium:
         fields.extend([
             SlackTextObject(type="mrkdwn", text="*Category*"),
@@ -208,11 +206,6 @@ def build_meta_blocks(meta: Meta, hatebu_entry: HatebuEntry | None = None) -> li
         fields.extend([
             SlackTextObject(type="mrkdwn", text="*Category*"),
             SlackTextObject(type="plain_text", text=meta.category_medium),
-        ])
-    if meta.published_at:
-        fields.extend([
-            SlackTextObject(type="mrkdwn", text="*Published*"),
-            SlackTextObject(type="plain_text", text=meta.published_at),
         ])
     if hatebu_entry is not None:
         fields.extend([

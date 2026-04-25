@@ -138,7 +138,7 @@ class TestAuthorProfileDisplay:
     """AuthorProfile表示関連のテスト"""
 
     def test_build_meta_blocks_with_expertise_areas(self) -> None:
-        """expertise_areasがある場合、AuthorとExpertiseが別フィールドで表示されること"""
+        """expertise_areasがある場合、Author欄に括弧付きで表示されること"""
         meta = Meta(
             title="テスト",
             url="https://example.com",
@@ -147,9 +147,7 @@ class TestAuthorProfileDisplay:
         )
         blocks = build_meta_blocks(meta)
         fields_block = blocks[1]
-        assert SlackTextObject(type="plain_text", text="taro") in fields_block.fields
-        assert SlackTextObject(type="mrkdwn", text="*Expertise*") in fields_block.fields
-        assert SlackTextObject(type="plain_text", text="インフラ, AWS") in fields_block.fields
+        assert SlackTextObject(type="plain_text", text="taro (インフラ, AWS)") in fields_block.fields
 
     def test_build_meta_blocks_author_name_none_skips_author(self) -> None:
         """AuthorProfile.name=Noneの場合、Author欄が表示されないこと"""
@@ -981,7 +979,7 @@ class TestBuildMetaBlocks:
         assert isinstance(fields_block, SlackSectionBlock)
         assert fields_block.text is None
         assert fields_block.fields is not None
-        assert len(fields_block.fields) == 8  # 4属性 × 2（ラベル+値）
+        assert len(fields_block.fields) == 6  # 3属性 × 2（ラベル+値）
         assert fields_block.fields == [
             SlackTextObject(type="mrkdwn", text="*URL*"),
             SlackTextObject(type="mrkdwn", text="<https://example.com/article>"),
@@ -989,8 +987,6 @@ class TestBuildMetaBlocks:
             SlackTextObject(type="plain_text", text="yamada_taro"),
             SlackTextObject(type="mrkdwn", text="*Category*"),
             SlackTextObject(type="plain_text", text="データエンジニアリング / BigQuery"),
-            SlackTextObject(type="mrkdwn", text="*Published*"),
-            SlackTextObject(type="plain_text", text="2025-01-15T10:30:00Z"),
         ]
 
     def test_all_optional_fields_none(self) -> None:
@@ -1033,14 +1029,12 @@ class TestBuildMetaBlocks:
 
         fields_block = blocks[1]
         assert fields_block.fields is not None
-        assert len(fields_block.fields) == 6  # 3属性（URL, author, published_at） × 2
+        assert len(fields_block.fields) == 4  # 2属性（URL, author） × 2
         assert fields_block.fields == [
             SlackTextObject(type="mrkdwn", text="*URL*"),
             SlackTextObject(type="mrkdwn", text="<https://example.com/partial>"),
             SlackTextObject(type="mrkdwn", text="*Author*"),
             SlackTextObject(type="plain_text", text="taro"),
-            SlackTextObject(type="mrkdwn", text="*Published*"),
-            SlackTextObject(type="plain_text", text="2025-01-15T10:30:00Z"),
         ]
 
     def test_category_large_and_medium(self) -> None:
@@ -1161,8 +1155,8 @@ class TestBuildMetaBlocks:
         blocks = build_meta_blocks(meta, hatebu_entry=entry)
         fields_block = blocks[1]
         assert fields_block.fields is not None
-        # URL(2) + Author(2) + Category(2) + Published(2) + Hatena(2) = 10要素（Slack上限ちょうど）
-        assert len(fields_block.fields) == 10
+        # URL(2) + Author(2) + Category(2) + Hatena(2) = 8要素
+        assert len(fields_block.fields) == 8
 
     def test_hatebu_entry_none_no_bookmark_field(self) -> None:
         """hatebu_entry=None → はてブフィールドが追加されないこと（従来通り）"""
