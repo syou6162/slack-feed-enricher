@@ -9,7 +9,7 @@ import pytest
 from claude_agent_sdk import ResultMessage
 
 from slack_feed_enricher.claude.exceptions import QueryTimeoutError
-from slack_feed_enricher.claude.summarizer import EnrichResult, Meta, Summary, build_fallback_text, build_unified_blocks
+from slack_feed_enricher.claude.summarizer import AuthorProfile, EnrichResult, Meta, Summary, build_fallback_text, build_unified_blocks
 from slack_feed_enricher.hatebu.models import HatebuBookmark, HatebuEntry
 from slack_feed_enricher.slack import SlackMessage
 from slack_feed_enricher.slack.exceptions import SlackAPIError
@@ -29,7 +29,7 @@ SAMPLE_STRUCTURED_OUTPUT = {
     "meta": {
         "title": "テスト記事",
         "url": "https://example.com",
-        "author": "test_author",
+        "author": {"name": "test_author", "expertise_areas": [], "evidence_urls": []},
         "category_large": "テスト",
         "category_medium": "サブカテゴリ",
         "published_at": "2025-01-15T10:30:00Z",
@@ -42,7 +42,7 @@ SAMPLE_STRUCTURED_OUTPUT = {
 _SAMPLE_META = Meta(
     title="テスト記事",
     url="https://example.com",
-    author="test_author",
+    author=AuthorProfile(name="test_author", expertise_areas=[], evidence_urls=[]),
     category_large="テスト",
     category_medium="サブカテゴリ",
     published_at="2025-01-15T10:30:00Z",
