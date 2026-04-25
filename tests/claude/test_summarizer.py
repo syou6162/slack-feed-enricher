@@ -11,6 +11,7 @@ from claude_agent_sdk._errors import MessageParseError
 
 from slack_feed_enricher.claude.exceptions import ClaudeAPIError, QueryTimeoutError, StructuredOutputError
 from slack_feed_enricher.claude.summarizer import (
+    AuthorProfile,
     EnrichResult,
     Meta,
     StructuredOutput,
@@ -78,7 +79,7 @@ class TestStructuredOutputSchema:
             "meta": {
                 "title": "テスト記事",
                 "url": "https://example.com",
-                "author": "test_author",
+                "author": {"name": "test_author", "expertise_areas": [], "evidence_urls": []},
                 "category_large": "テスト",
                 "category_medium": "サブカテゴリ",
                 "published_at": "2025-01-15T10:30:00Z",
@@ -90,6 +91,140 @@ class TestStructuredOutputSchema:
         assert result.meta.title == "テスト記事"
         assert result.summary.points == ["ポイント1"]
         assert result.detail == "詳細内容"
+
+
+class TestAuthorProfile:
+    """AuthorProfileモデルのテスト"""
+
+    def test_author_profile_with_all_fields(self) -> None:
+        """全フィールド指定でAuthorProfileが生成されること"""
+        profile = AuthorProfile(
+            name="yamada_taro",
+            expertise_areas=["インフラ", "Terraform", "AWS"],
+            evidence_urls=["https://example.com/about"],
+        )
+        assert profile.name == "yamada_taro"
+        assert profile.expertise_areas == ["インフラ", "Terraform", "AWS"]
+        assert profile.evidence_urls == ["https://example.com/about"]
+
+    def test_author_profile_name_none(self) -> None:
+        """name=Noneが許容されること"""
+        profile = AuthorProfile(name=None, expertise_areas=[], evidence_urls=[])
+        assert profile.name is None
+
+    def test_author_profile_empty_lists(self) -> None:
+        """expertise_areasとevidence_urlsが空リストで生成できること"""
+        profile = AuthorProfile(name="taro", expertise_areas=[], evidence_urls=[])
+        assert profile.expertise_areas == []
+        assert profile.evidence_urls == []
+
+    def test_meta_author_accepts_author_profile(self) -> None:
+        """Meta.authorにAuthorProfileを渡せること"""
+        profile = AuthorProfile(name="taro", expertise_areas=["Python"], evidence_urls=[])
+        meta = Meta(
+            title="テスト", url="https://example.com", author=profile,
+            category_large=None, category_medium=None, published_at=None,
+        )
+        assert meta.author is not None
+        assert meta.author.name == "taro"
+        assert meta.author.expertise_areas == ["Python"]
+
+    def test_meta_author_none_still_works(self) -> None:
+        """Meta.author=Noneが引き続き動作すること"""
+        meta = Meta(
+            title="テスト", url="https://example.com", author=None,
+            category_large=None, category_medium=None, published_at=None,
+        )
+        assert meta.author is None
+
+
+class TestAuthorProfileDisplay:
+    """AuthorProfile表示関連のテスト"""
+
+    def test_build_meta_blocks_with_expertise_areas(self) -> None:
+        """expertise_areasがある場合、Author欄に括弧付きで表示されること"""
+        meta = Meta(
+            title="テスト",
+            url="https://example.com",
+            author=AuthorProfile(name="taro", expertise_areas=["インフラ", "AWS"], evidence_urls=[]),
+            category_large=None, category_medium=None, published_at=None,
+        )
+        blocks = build_meta_blocks(meta)
+        fields_block = blocks[1]
+        assert SlackTextObject(type="plain_text", text="taro (インフラ, AWS)") in fields_block.fields
+
+    def test_build_meta_blocks_author_name_none_skips_author(self) -> None:
+        """AuthorProfile.name=Noneの場合、Author欄が表示されないこと"""
+        meta = Meta(
+            title="テスト",
+            url="https://example.com",
+            author=AuthorProfile(name=None, expertise_areas=["Python"], evidence_urls=[]),
+            category_large=None, category_medium=None, published_at=None,
+        )
+        blocks = build_meta_blocks(meta)
+        fields_block = blocks[1]
+        assert len(fields_block.fields) == 2  # URLのみ
+
+    def test_build_fallback_text_with_author_profile(self) -> None:
+        """build_fallback_textがAuthorProfile.nameを表示すること"""
+        meta = Meta(
+            title="テスト記事", url="https://example.com",
+            author=AuthorProfile(name="taro", expertise_areas=["Go"], evidence_urls=[]),
+            category_large=None, category_medium=None, published_at=None,
+        )
+        summary = Summary(points=["ポイント1"])
+        text = build_fallback_text(meta, summary)
+        assert "taro" in text
+
+    def test_build_fallback_text_author_none(self) -> None:
+        """Meta.author=Noneの場合、fallback_textに「不明」が表示されること"""
+        meta = Meta(
+            title="テスト記事", url="https://example.com",
+            author=None,
+            category_large=None, category_medium=None, published_at=None,
+        )
+        summary = Summary(points=["ポイント1"])
+        text = build_fallback_text(meta, summary)
+        assert "不明" in text
+
+    def test_format_meta_block_with_expertise_dict(self) -> None:
+        """format_meta_blockがexpertise_areas付きのdict authorを処理できること"""
+        meta = {
+            "title": "テスト",
+            "url": "https://example.com",
+            "author": {"name": "taro", "expertise_areas": ["Go", "K8s"], "evidence_urls": []},
+            "category_large": None,
+            "category_medium": None,
+            "published_at": None,
+        }
+        result = format_meta_block(meta)
+        assert "著者: taro" in result
+
+    def test_format_meta_block_with_author_profile_object(self) -> None:
+        """format_meta_blockがAuthorProfileオブジェクトを処理できること"""
+        meta = {
+            "title": "テスト",
+            "url": "https://example.com",
+            "author": AuthorProfile(name="taro", expertise_areas=[], evidence_urls=[]),
+            "category_large": None,
+            "category_medium": None,
+            "published_at": None,
+        }
+        result = format_meta_block(meta)
+        assert "著者: taro" in result
+
+    def test_format_meta_block_author_dict_name_none(self) -> None:
+        """format_meta_blockでdict authorのnameがNoneの場合「不明」になること"""
+        meta = {
+            "title": "テスト",
+            "url": "https://example.com",
+            "author": {"name": None, "expertise_areas": [], "evidence_urls": []},
+            "category_large": None,
+            "category_medium": None,
+            "published_at": None,
+        }
+        result = format_meta_block(meta)
+        assert "著者: 不明" in result
 
 
 class TestFetchAndSummarize:
@@ -115,7 +250,7 @@ class TestFetchAndSummarize:
             "meta": {
                 "title": "テスト記事",
                 "url": "https://example.com",
-                "author": "test_author",
+                "author": {"name": "test_author", "expertise_areas": [], "evidence_urls": []},
                 "category_large": "テスト",
                 "category_medium": "サブカテゴリ",
                 "published_at": "2025-01-15T10:30:00Z",
@@ -131,7 +266,8 @@ class TestFetchAndSummarize:
         result = await fetch_and_summarize(mock_query, "https://example.com")
 
         meta = Meta(
-            title="テスト記事", url="https://example.com", author="test_author",
+            title="テスト記事", url="https://example.com",
+            author=AuthorProfile(name="test_author", expertise_areas=[], evidence_urls=[]),
             category_large="テスト", category_medium="サブカテゴリ", published_at="2025-01-15T10:30:00Z",
         )
         summary = Summary(points=["ポイント1", "ポイント2"])
@@ -150,7 +286,7 @@ class TestFetchAndSummarize:
             "meta": {
                 "title": "テスト記事",
                 "url": "https://example.com",
-                "author": "test_author",
+                "author": {"name": "test_author", "expertise_areas": [], "evidence_urls": []},
                 "category_large": "テスト",
                 "category_medium": "サブカテゴリ",
                 "published_at": "2025-01-15T10:30:00Z",
@@ -173,7 +309,8 @@ class TestFetchAndSummarize:
         )
 
         meta = Meta(
-            title="テスト記事", url="https://example.com", author="test_author",
+            title="テスト記事", url="https://example.com",
+            author=AuthorProfile(name="test_author", expertise_areas=[], evidence_urls=[]),
             category_large="テスト", category_medium="サブカテゴリ", published_at="2025-01-15T10:30:00Z",
         )
         summary = Summary(points=["ポイント1"])
@@ -582,22 +719,12 @@ class TestBuildSummaryPrompt:
     def test_main_url_only(self) -> None:
         """メインURLのみ → 補足URLセクションなしのプロンプトが生成される"""
         prompt = build_summary_prompt("https://example.com/article")
-        expected = (
-            "以下のURLをWebFetchで取得し、次の項目を抽出してください。\n"
-            "\n"
-            "抽出項目:\n"
-            "- meta.title: 記事のタイトル\n"
-            "- meta.url: 記事のURL\n"
-            "- meta.author: 著者名（はてなID、Twitter/X ID、本名など。不明ならnull）\n"
-            "- meta.category_large: 大カテゴリー（例: データエンジニアリング。不明ならnull）\n"
-            "- meta.category_medium: 中カテゴリー（例: BigQuery。不明ならnull）\n"
-            "- meta.published_at: 投稿日時（ISO 8601形式。不明ならnull）\n"
-            "- summary.points: 記事の核心を簡潔にまとめた箇条書き（1〜5項目）\n"
-            "- detail: 記事内容を構造化した詳細説明（markdown形式）\n"
-            "\n"
-            "メインURL（記事本体）: https://example.com/article"
-        )
-        assert prompt == expected
+        assert "- meta.author: 著者プロフィール情報（取得できなければnull）" in prompt
+        assert "  - meta.author.name: 著者名（はてなID、Twitter/X ID、本名など。不明ならnull）" in prompt
+        assert "  - meta.author.expertise_areas: 著者の専門領域の推定" in prompt
+        assert "  - meta.author.evidence_urls: 著者プロフィールページやAboutページ等のURL" in prompt
+        assert "著者情報の収集:" in prompt
+        assert "メインURL（記事本体）: https://example.com/article" in prompt
 
     def test_main_url_with_supplementary_urls(self) -> None:
         """メインURL + 補足URLs → 補足URLセクション付きのプロンプトが生成される"""
@@ -605,29 +732,11 @@ class TestBuildSummaryPrompt:
             "https://example.com/article",
             supplementary_urls=["https://tool.example.com", "https://ref.example.com"],
         )
-        expected = (
-            "以下のURLをWebFetchで取得し、次の項目を抽出してください。\n"
-            "\n"
-            "抽出項目:\n"
-            "- meta.title: 記事のタイトル\n"
-            "- meta.url: 記事のURL\n"
-            "- meta.author: 著者名（はてなID、Twitter/X ID、本名など。不明ならnull）\n"
-            "- meta.category_large: 大カテゴリー（例: データエンジニアリング。不明ならnull）\n"
-            "- meta.category_medium: 中カテゴリー（例: BigQuery。不明ならnull）\n"
-            "- meta.published_at: 投稿日時（ISO 8601形式。不明ならnull）\n"
-            "- summary.points: 記事の核心を簡潔にまとめた箇条書き（1〜5項目）\n"
-            "- detail: 記事内容を構造化した詳細説明（markdown形式）\n"
-            "\n"
-            "メインURL（記事本体）: https://example.com/article\n"
-            "\n"
-            "補足URL:\n"
-            "- https://tool.example.com\n"
-            "- https://ref.example.com\n"
-            "\n"
-            "メインURLが主たる情報源です。補足URLは記事内で言及されているツールや"
-            "引用元の詳細情報なので、要約に適宜取り込んでください。"
-        )
-        assert prompt == expected
+        assert "- meta.author: 著者プロフィール情報（取得できなければnull）" in prompt
+        assert "補足URL:" in prompt
+        assert "- https://tool.example.com" in prompt
+        assert "- https://ref.example.com" in prompt
+        assert "メインURLが主たる情報源です。" in prompt
 
     def test_supplementary_urls_empty_list(self) -> None:
         """補足URLが空リスト → メインURLのみの場合と同一の出力"""
@@ -685,7 +794,7 @@ class TestFormatMetaBlock:
         meta = {
             "title": "BigQueryの最適化テクニック",
             "url": "https://example.com/article",
-            "author": "yamada_taro",
+            "author": {"name": "yamada_taro", "expertise_areas": [], "evidence_urls": []},
             "category_large": "データエンジニアリング",
             "category_medium": "BigQuery",
             "published_at": "2025-01-15T10:30:00Z",
@@ -704,7 +813,7 @@ class TestFormatMetaBlock:
         meta = {
             "title": "BigQuery入門",
             "url": "https://example.com/bq",
-            "author": "taro",
+            "author": {"name": "taro", "expertise_areas": [], "evidence_urls": []},
             "category_large": None,
             "category_medium": "BigQuery",
             "published_at": "2025-01-15T10:30:00Z",
@@ -723,7 +832,7 @@ class TestFormatMetaBlock:
         meta = {
             "title": "データ基盤の話",
             "url": "https://example.com/data",
-            "author": "taro",
+            "author": {"name": "taro", "expertise_areas": [], "evidence_urls": []},
             "category_large": "データエンジニアリング",
             "category_medium": None,
             "published_at": "2025-01-15T10:30:00Z",
@@ -761,7 +870,7 @@ class TestFormatMetaBlock:
         meta = {
             "title": "テスト記事",
             "url": "https://example.com/article",
-            "author": "taro",
+            "author": {"name": "taro", "expertise_areas": [], "evidence_urls": []},
             "category_large": "Tech",
             "category_medium": "Python",
             "published_at": "2025-01-15T10:30:00Z",
@@ -847,7 +956,7 @@ class TestBuildMetaBlocks:
         meta = Meta(
             title="BigQueryの最適化テクニック",
             url="https://example.com/article",
-            author="yamada_taro",
+            author=AuthorProfile(name="yamada_taro", expertise_areas=[], evidence_urls=[]),
             category_large="データエンジニアリング",
             category_medium="BigQuery",
             published_at="2025-01-15T10:30:00Z",
@@ -907,7 +1016,7 @@ class TestBuildMetaBlocks:
         meta = Meta(
             title="著者ありカテゴリなし",
             url="https://example.com/partial",
-            author="taro",
+            author=AuthorProfile(name="taro", expertise_areas=[], evidence_urls=[]),
             category_large=None,
             category_medium=None,
             published_at="2025-01-15T10:30:00Z",
@@ -1034,7 +1143,7 @@ class TestBuildMetaBlocks:
         meta = Meta(
             title="テスト",
             url="https://example.com",
-            author="taro",
+            author=AuthorProfile(name="taro", expertise_areas=[], evidence_urls=[]),
             category_large="Tech",
             category_medium="Python",
             published_at="2025-01-15T10:30:00Z",

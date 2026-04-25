@@ -39,11 +39,22 @@ logger = logging.getLogger(__name__)
 QueryFunc = Callable[..., AsyncIterator[Any]]
 
 
+class AuthorProfile(BaseModel):
+    """著者プロフィール情報
+
+    記事を読む価値があるかを人が判断する際の補助として表示する。
+    """
+
+    name: str | None
+    expertise_areas: list[str]
+    evidence_urls: list[str]
+
+
 class Meta(BaseModel):
     model_config = ConfigDict(json_schema_extra=None)
     title: str
     url: str
-    author: str | None
+    author: AuthorProfile | None
     category_large: str | None
     category_medium: str | None
     published_at: str | None
@@ -92,7 +103,10 @@ def build_summary_prompt(
         "抽出項目:",
         "- meta.title: 記事のタイトル",
         "- meta.url: 記事のURL",
-        "- meta.author: 著者名（はてなID、Twitter/X ID、本名など。不明ならnull）",
+        "- meta.author: 著者プロフィール情報（取得できなければnull）",
+        "  - meta.author.name: 著者名（はてなID、Twitter/X ID、本名など。不明ならnull）",
+        "  - meta.author.expertise_areas: 著者の専門領域の推定（例: [\"インフラ\", \"Terraform\", \"AWS\"]）",
+        "  - meta.author.evidence_urls: 著者プロフィールページやAboutページ等のURL",
         "- meta.category_large: 大カテゴリー（例: データエンジニアリング。不明ならnull）",
         "- meta.category_medium: 中カテゴリー（例: BigQuery。不明ならnull）",
         "- meta.published_at: 投稿日時（ISO 8601形式。不明ならnull）",
@@ -100,6 +114,12 @@ def build_summary_prompt(
         "- detail: 記事内容を構造化した詳細説明（markdown形式）",
         "",
         f"メインURL（記事本体）: {url}",
+        "",
+        "著者情報の収集:",
+        "- 元記事ページから著者名・プロフィールリンクを探す",
+        "- 主要プラットフォーム（Zenn / note / Qiita / はてなブログ / Medium / Substack 等）",
+        "  の場合はプロフィールページをWebFetchで確認し、専門領域を推定する",
+        "- 著者情報が見つからない場合はmeta.authorをnullとする",
     ]
 
     if supplementary_urls:
@@ -172,10 +192,13 @@ def build_meta_blocks(meta: Meta, hatebu_entry: HatebuEntry | None = None) -> li
         SlackTextObject(type="mrkdwn", text="*URL*"),
         SlackTextObject(type="mrkdwn", text=f"<{meta.url}>"),
     ]
-    if meta.author:
+    if meta.author and meta.author.name:
+        author_text = meta.author.name
+        if meta.author.expertise_areas:
+            author_text += f" ({', '.join(meta.author.expertise_areas)})"
         fields.extend([
             SlackTextObject(type="mrkdwn", text="*Author*"),
-            SlackTextObject(type="plain_text", text=meta.author),
+            SlackTextObject(type="plain_text", text=author_text),
         ])
     if meta.category_large and meta.category_medium:
         fields.extend([
@@ -472,8 +495,11 @@ def build_detail_blocks(detail: str) -> list[SlackBlock]:
 def _build_context_elements(meta: Meta, hatebu_entry: HatebuEntry | None = None) -> list[SlackContextElement]:
     """MetaモデルからContextブロック用のelementsを生成する"""
     parts: list[str] = []
-    if meta.author:
-        parts.append(f"著者: {meta.author}")
+    if meta.author and meta.author.name:
+        author_text = meta.author.name
+        if meta.author.expertise_areas:
+            author_text += f" ({', '.join(meta.author.expertise_areas)})"
+        parts.append(f"著者: {author_text}")
     if meta.category_large and meta.category_medium:
         parts.append(f"{meta.category_large} / {meta.category_medium}")
     elif meta.category_large:
@@ -568,7 +594,8 @@ def build_fallback_text(
     """
     lines: list[str] = []
     lines.append(f"*{meta.title}*")
-    lines.append(f"著者: {meta.author or '不明'}")
+    author_name = meta.author.name if meta.author else None
+    lines.append(f"著者: {author_name or '不明'}")
 
     if hatebu_entry is not None:
         lines.append(f"はてブ: {hatebu_entry.count} users")
@@ -594,7 +621,14 @@ def format_meta_block(meta: dict[str, Any], hatebu_entry: HatebuEntry | None = N
     lines = []
     lines.append(f"*{meta['title']}*")
     lines.append(f"URL: {meta['url']}")
-    lines.append(f"著者: {meta['author'] or '不明'}")
+    author = meta.get("author")
+    if isinstance(author, dict):
+        author_name = author.get("name")
+    elif isinstance(author, AuthorProfile):
+        author_name = author.name
+    else:
+        author_name = author
+    lines.append(f"著者: {author_name or '不明'}")
 
     category_large = meta.get("category_large")
     category_medium = meta.get("category_medium")
