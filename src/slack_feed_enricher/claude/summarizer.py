@@ -494,8 +494,6 @@ def _build_context_blocks(meta: Meta, hatebu_entry: HatebuEntry | None = None) -
         items.append(f"カテゴリ: {meta.category_large}")
     elif meta.category_medium:
         items.append(f"カテゴリ: {meta.category_medium}")
-    if meta.published_at:
-        items.append(f"公開日: {meta.published_at}")
     if hatebu_entry is not None:
         items.append(f"\U0001f4da {hatebu_entry.count} users / \U0001f4ac {hatebu_entry.comment_count} comments")
     if not items:
@@ -517,7 +515,7 @@ def build_unified_blocks(
 
     レイアウト:
     1. Header: 記事タイトル
-    2. RichText (bullet list): 著者 / 専門 / カテゴリ / 公開日 / はてブ数
+    2. RichText (bullet list): 著者 / 専門 / カテゴリ / はてブ数
     3. Section: 元記事URL
     4. Divider
     5. RichText (bullet list): 要約
