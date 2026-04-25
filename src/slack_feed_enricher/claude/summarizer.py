@@ -118,47 +118,47 @@ def build_summary_prompt(
     Returns:
         構築されたプロンプト文字列
     """
-    parts = [
-        "以下のURLをWebFetchで取得し、次の項目を抽出してください。",
-        "",
-        "抽出項目:",
-        "- meta.title: 記事のタイトル",
-        "- meta.url: 記事のURL",
-        "- meta.author: 著者プロフィール情報（取得できなければnull）",
-        "  - meta.author.name: 著者名（はてなID、Twitter/X ID、本名など。不明ならnull）",
-        "  - meta.author.expertise_areas: 著者の専門領域の推定（例: [\"インフラ\", \"Terraform\", \"AWS\"]）",
-        "  - meta.author.evidence_urls: 著者プロフィールページやAboutページ等のURL",
-        "- meta.category_large: 大カテゴリー（例: データエンジニアリング。不明ならnull）",
-        "- meta.category_medium: 中カテゴリー（例: BigQuery。不明ならnull）",
-        "- meta.published_at: 投稿日時（ISO 8601形式。不明ならnull）",
-        "- summary.points: 記事の核心を簡潔にまとめた箇条書き（1〜5項目）",
-        "- detail: 記事内容を構造化した詳細説明（markdown形式）",
-        "",
-        f"メインURL（記事本体）: {url}",
-        "",
-        _AUTHOR_COLLECTION_INSTRUCTIONS,
-    ]
+    prompt = f"""\
+以下のURLをWebFetchで取得し、次の項目を抽出してください。
+
+抽出項目:
+- meta.title: 記事のタイトル
+- meta.url: 記事のURL
+- meta.author: 著者プロフィール情報（取得できなければnull）
+  - meta.author.name: 著者名（はてなID、Twitter/X ID、本名など。不明ならnull）
+  - meta.author.expertise_areas: 著者の専門領域の推定（例: ["インフラ", "Terraform", "AWS"]）
+  - meta.author.evidence_urls: 著者プロフィールページやAboutページ等のURL
+- meta.category_large: 大カテゴリー（例: データエンジニアリング。不明ならnull）
+- meta.category_medium: 中カテゴリー（例: BigQuery。不明ならnull）
+- meta.published_at: 投稿日時（ISO 8601形式。不明ならnull）
+- summary.points: 記事の核心を簡潔にまとめた箇条書き（1〜5項目）
+- detail: 記事内容を構造化した詳細説明（markdown形式）
+
+メインURL（記事本体）: {url}
+
+{_AUTHOR_COLLECTION_INSTRUCTIONS}"""
 
     if supplementary_urls:
-        parts.append("")
-        parts.append("補足URL:")
-        for sup_url in supplementary_urls:
-            parts.append(f"- {sup_url}")
-        parts.append("")
-        parts.append(
-            "メインURLが主たる情報源です。補足URLは記事内で言及されているツールや"
-            "引用元の詳細情報なので、要約に適宜取り込んでください。"
-        )
+        urls_list = "\n".join(f"- {sup_url}" for sup_url in supplementary_urls)
+        prompt += f"""
+
+補足URL:
+{urls_list}
+
+メインURLが主たる情報源です。補足URLは記事内で言及されているツールや\
+引用元の詳細情報なので、要約に適宜取り込んでください。"""
 
     if hatebu_entry is not None and hatebu_entry.comment_count > 0:
         filepath = _write_hatebu_comments_to_file(hatebu_entry)
         if filepath:
-            parts.append("")
-            parts.append(f"以下のファイルにはてなブックマークコメントがあります：\n{filepath}")
-            parts.append("")
-            parts.append("記事要約の際にこれらのコメントも参考にしてください。")
+            prompt += f"""
 
-    return "\n".join(parts)
+以下のファイルにはてなブックマークコメントがあります：
+{filepath}
+
+記事要約の際にこれらのコメントも参考にしてください。"""
+
+    return prompt
 
 
 _HATEBU_COMMENTS_FILE = ".hatena_bookmark/hatebu_comments.txt"
