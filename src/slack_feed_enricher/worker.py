@@ -36,14 +36,9 @@ async def send_enriched_messages(
     channel_id: str,
     thread_ts: str,
     result: EnrichResult,
-) -> list[str]:
+) -> str:
     """
-    EnrichResultをSlackスレッドに3通のメッセージとして投稿する。
-
-    投稿順序:
-    1. メタ情報（Block Kit + フォールバックtext）
-    2. 簡潔な要約（Block Kit + フォールバックtext）
-    3. 詳細（Block Kit + フォールバックtext）
+    EnrichResultをSlackスレッドに1通の統合メッセージとして投稿する。
 
     Args:
         slack_client: Slackクライアント
@@ -52,40 +47,17 @@ async def send_enriched_messages(
         result: EnrichResult（Block Kit形式のブロックとフォールバックテキスト）
 
     Returns:
-        list[str]: 投稿されたメッセージのtsリスト
+        str: 投稿されたメッセージのts
 
     Raises:
-        SlackAPIError: Slack API呼び出しに失敗した場合（途中で発生した場合は即座にraise）
+        SlackAPIError: Slack API呼び出しに失敗した場合
     """
-    # 1通目: meta（blocks + text）
-    ts_meta = await slack_client.post_thread_reply(
+    return await slack_client.post_thread_reply(
         channel_id=channel_id,
         thread_ts=thread_ts,
-        text=result.meta_text,
-        blocks=result.meta_blocks,
+        text=result.fallback_text,
+        blocks=result.blocks,
     )
-
-    await asyncio.sleep(1.0)
-
-    # 2通目: summary（blocks + text）
-    ts_summary = await slack_client.post_thread_reply(
-        channel_id=channel_id,
-        thread_ts=thread_ts,
-        text=result.summary_text,
-        blocks=result.summary_blocks,
-    )
-
-    await asyncio.sleep(1.0)
-
-    # 3通目: detail（blocks + text）
-    ts_detail = await slack_client.post_thread_reply(
-        channel_id=channel_id,
-        thread_ts=thread_ts,
-        text=result.detail_text,
-        blocks=result.detail_blocks,
-    )
-
-    return [ts_meta, ts_summary, ts_detail]
 
 
 async def enrich_and_reply_pending_messages(

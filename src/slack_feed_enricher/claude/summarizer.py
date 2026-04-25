@@ -21,6 +21,9 @@ from slack_feed_enricher.claude.exceptions import (
 from slack_feed_enricher.hatebu.models import HatebuEntry
 from slack_feed_enricher.slack.blocks import (
     SlackBlock,
+    SlackContextBlock,
+    SlackContextElement,
+    SlackDividerBlock,
     SlackHeaderBlock,
     SlackRichTextBlock,
     SlackRichTextList,
@@ -57,12 +60,8 @@ class StructuredOutput(BaseModel):
 
 
 class EnrichResult(BaseModel, frozen=True):
-    meta_blocks: list[SlackBlock]
-    meta_text: str
-    summary_blocks: list[SlackBlock]
-    summary_text: str
-    detail_blocks: list[SlackBlock]
-    detail_text: str
+    blocks: list[SlackBlock]
+    fallback_text: str
 
 
 # 構造化出力スキーマ
@@ -470,6 +469,118 @@ def build_detail_blocks(detail: str) -> list[SlackBlock]:
     return sections
 
 
+def _build_context_elements(meta: Meta, hatebu_entry: HatebuEntry | None = None) -> list[SlackContextElement]:
+    """MetaモデルからContextブロック用のelementsを生成する"""
+    parts: list[str] = []
+    if meta.author:
+        parts.append(f"著者: {meta.author}")
+    if meta.category_large and meta.category_medium:
+        parts.append(f"{meta.category_large} / {meta.category_medium}")
+    elif meta.category_large:
+        parts.append(meta.category_large)
+    elif meta.category_medium:
+        parts.append(meta.category_medium)
+    if meta.published_at:
+        parts.append(meta.published_at)
+    if hatebu_entry is not None:
+        parts.append(f"\U0001f4da {hatebu_entry.count} users / \U0001f4ac {hatebu_entry.comment_count} comments")
+    return [SlackContextElement(type="mrkdwn", text=" | ".join(parts))] if parts else []
+
+
+def build_unified_blocks(
+    meta: Meta,
+    summary: Summary,
+    detail: str,
+    hatebu_entry: HatebuEntry | None = None,
+) -> list[SlackBlock]:
+    """統合された1メッセージ用のBlock Kit配列を生成する
+
+    レイアウト:
+    1. Header: 記事タイトル
+    2. Context: 著者 / カテゴリ / 公開日 / はてブ数
+    3. Section: 元記事URL
+    4. Divider
+    5. RichText (bullet list): 要約
+    6. Divider
+    7. Section × N: 詳細 (3000文字分割)
+
+    Args:
+        meta: Metaモデルインスタンス
+        summary: Summaryモデルインスタンス
+        detail: 詳細テキスト（markdown形式、はてブコメント結合済み）
+        hatebu_entry: はてなブックマークエントリー情報（Noneなら省略）
+
+    Returns:
+        SlackBlockのリスト
+    """
+    blocks: list[SlackBlock] = []
+
+    # 1. Header: 記事タイトル
+    truncated_title = meta.title[:150] if len(meta.title) > 150 else meta.title
+    blocks.append(SlackHeaderBlock(text=SlackTextObject(type="plain_text", text=truncated_title)))
+
+    # 2. Context: 著者 / カテゴリ / 公開日 / はてブ数
+    context_elements = _build_context_elements(meta, hatebu_entry)
+    if context_elements:
+        blocks.append(SlackContextBlock(elements=context_elements))
+
+    # 3. Section: 元記事URL
+    blocks.append(SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=f"<{meta.url}>")))
+
+    # 4. Divider
+    blocks.append(SlackDividerBlock())
+
+    # 5. RichText (bullet list): 要約
+    list_items = [
+        SlackRichTextSection(elements=[SlackTextElement(text=point)])
+        for point in summary.points
+    ]
+    blocks.append(SlackRichTextBlock(
+        elements=[SlackRichTextList(style="bullet", elements=list_items)]
+    ))
+
+    # 6. Divider
+    blocks.append(SlackDividerBlock())
+
+    # 7. Section × N: 詳細 (3000文字分割)
+    converted = convert_markdown_to_mrkdwn(detail)
+    chunks = _split_mrkdwn_text(converted)
+    for chunk in chunks:
+        blocks.append(SlackSectionBlock(text=SlackTextObject(type="mrkdwn", text=chunk)))
+
+    return blocks
+
+
+def build_fallback_text(
+    meta: Meta,
+    summary: Summary,
+    hatebu_entry: HatebuEntry | None = None,
+) -> str:
+    """通知用のフォールバックテキストを生成する
+
+    Args:
+        meta: Metaモデルインスタンス
+        summary: Summaryモデルインスタンス
+        hatebu_entry: はてなブックマークエントリー情報（Noneなら省略）
+
+    Returns:
+        フォールバックテキスト文字列
+    """
+    lines: list[str] = []
+    lines.append(f"*{meta.title}*")
+    lines.append(f"著者: {meta.author or '不明'}")
+
+    if hatebu_entry is not None:
+        lines.append(f"はてブ: {hatebu_entry.count} users")
+
+    lines.append("")
+    lines.append("要約:")
+    for point in summary.points:
+        lines.append(f"- {point}")
+
+    return "\n".join(lines)
+
+
 def format_meta_block(meta: dict[str, Any], hatebu_entry: HatebuEntry | None = None) -> str:
     """メタ情報ブロックをフォーマットする
 
@@ -636,14 +747,7 @@ async def fetch_and_summarize(
         hatebu_detail = _build_hatebu_comments_for_detail(hatebu_entry, remaining)
         detail = detail + hatebu_detail
 
-    meta_text = format_meta_block(parsed.meta.model_dump(), hatebu_entry=hatebu_entry)
-    summary_text = format_summary_block(parsed.summary.model_dump())
-
     return EnrichResult(
-        meta_blocks=build_meta_blocks(parsed.meta, hatebu_entry=hatebu_entry),
-        meta_text=meta_text,
-        summary_blocks=build_summary_blocks(parsed.summary),
-        summary_text=summary_text,
-        detail_blocks=build_detail_blocks(detail),
-        detail_text=convert_markdown_to_mrkdwn(detail)[:_DETAIL_TEXT_MAX_CHARS],
+        blocks=build_unified_blocks(parsed.meta, parsed.summary, detail, hatebu_entry=hatebu_entry),
+        fallback_text=build_fallback_text(parsed.meta, parsed.summary, hatebu_entry=hatebu_entry),
     )
