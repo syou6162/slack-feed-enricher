@@ -29,7 +29,7 @@ SAMPLE_STRUCTURED_OUTPUT = {
     "meta": {
         "title": "テスト記事",
         "url": "https://example.com",
-        "author": {"name": "test_author", "expertise_areas": [], "evidence_urls": []},
+        "author": {"name": "test_author", "expertise_areas": []},
         "category_large": "テスト",
         "category_medium": "サブカテゴリ",
         "published_at": "2025-01-15T10:30:00Z",
@@ -42,7 +42,7 @@ SAMPLE_STRUCTURED_OUTPUT = {
 _SAMPLE_META = Meta(
     title="テスト記事",
     url="https://example.com",
-    author=AuthorProfile(name="test_author", expertise_areas=[], evidence_urls=[]),
+    author=AuthorProfile(name="test_author", expertise_areas=[]),
     category_large="テスト",
     category_medium="サブカテゴリ",
     published_at="2025-01-15T10:30:00Z",

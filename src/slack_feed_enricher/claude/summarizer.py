@@ -47,7 +47,6 @@ class AuthorProfile(BaseModel):
 
     name: str | None
     expertise_areas: list[str]
-    evidence_urls: list[str]
 
 
 class Meta(BaseModel):
@@ -105,7 +104,6 @@ def build_summary_prompt(
 - meta.author: 著者プロフィール情報（取得できなければnull）
   - meta.author.name: 著者名（はてなID、Twitter/X ID、本名など。不明ならnull）
   - meta.author.expertise_areas: 著者の専門領域の推定（例: ["インフラ", "Terraform", "AWS"]）
-  - meta.author.evidence_urls: 著者プロフィールページやAboutページ等のURL
 - meta.category_large: 大カテゴリー（例: データエンジニアリング。不明ならnull）
 - meta.category_medium: 中カテゴリー（例: BigQuery。不明ならnull）
 - meta.published_at: 投稿日時（ISO 8601形式。不明ならnull）
@@ -116,7 +114,6 @@ def build_summary_prompt(
 
 著者情報の収集:
 - 元記事ページ上に表示されている著者名・プロフィール情報から専門領域を推定する
-- evidence_urlsには記事ページ上にリンクされている著者プロフィールURLを記録する
 - 著者情報が見当たらない場合はmeta.authorをnullとする"""
 
     if supplementary_urls:
